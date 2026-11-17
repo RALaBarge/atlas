@@ -9,7 +9,8 @@ from . import readers
 READER_VERSION = "3"
 CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "atlas", "parse-" + READER_VERSION)
 MAX_BYTES = 1_500_000                     # bigger files are listed but not parsed (generated code, bundles)
-SKIP_DIRS = {".git", "node_modules", "vendor", "third_party", "third-party", "dist", "build", "target", "out",
+SKIP_DIRS = {".git", "node_modules", "vendor", "third_party", "third-party", "thirdparty", "3rdparty", "deps", "external", "extern",
+             "dist", "build", "target", "out",
              ".venv", "venv", "__pycache__", ".tox", ".mypy_cache", ".next", ".nuxt", "coverage", ".gradle", "bower_components"}
 SKIP_SUFFIX = (".min.js", ".min.css", ".map", ".lock", ".sum", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".svg",
                ".pdf", ".zip", ".gz", ".tar", ".tgz", ".whl", ".jar", ".class", ".so", ".dll", ".exe", ".o", ".a",

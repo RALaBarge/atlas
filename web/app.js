@@ -20,7 +20,7 @@ const G = await unpack("atlas-graph");
 const N = new Map();
 const add = (n) => { n.kids = []; N.set(n.id, n); return n; };
 const ROOT = add({ id: "/", t: "root", name: G.name || "repo" });
-const areaNames = [...new Set(G.files.map((f) => f.area))].sort((a, b) => (a === ".") - (b === ".") || a.localeCompare(b));
+const areaNames = [...new Set(G.files.filter((f) => f.lang || !/\.(md|mdx|rst|txt|adoc|asciidoc|ipynb|html?|po|pot)$/i.test(f.id) || !f.id.includes("/")).map((f) => f.area))].sort((a, b) => (a === ".") - (b === ".") || a.localeCompare(b));
 const PALETTE = ["#45b8a9", "#e8a646", "#9b87e8", "#6fa3e8", "#84c26f", "#e2795d", "#d97fb6", "#cdbb8c", "#5fc4d9", "#b9c46a", "#e88f8f", "#8fb3c9",
   "#c39b6a", "#7fd1a8", "#b08de3", "#e8c46a"];
 const COLOR = {};
@@ -29,7 +29,9 @@ for (const a of areaNames) {
   const n = add({ id: "a:" + a, t: "area", name: a === "." ? "(top level)" : a, area: a, parent: ROOT });
   ROOT.kids.push(n);
 }
-for (const f of G.files) {
+const DOCS = /\.(md|mdx|rst|txt|adoc|asciidoc|ipynb|html?|po|pot)$/i;
+const shown = G.files.filter((f) => f.lang || !DOCS.test(f.id) || !f.id.includes("/"));
+for (const f of shown) {
   let holder = N.get("a:" + f.area);
   if (f.comp) {
     holder = N.get("c:" + f.comp) || (() => { const c = add({ id: "c:" + f.comp, t: "comp", name: f.comp.slice(f.area.length + 1), area: f.area, parent: holder });
@@ -43,6 +45,7 @@ const classOf = new Map();
 for (const s of G.symbols) if (s.kind === "class" || s.kind === "type") classOf.set(s.file + "#" + s.name, "s:" + s.id);
 for (const s of G.symbols) {
   const file = N.get("f:" + s.file);
+  if (!file) continue;
   const holderId = s.parent && classOf.get(s.file + "#" + s.parent);
   const holder = (holderId && holderId !== "s:" + s.id && N.get(holderId)) || file;
   const n = add({ id: "s:" + s.id, t: "sym", name: s.name, kind: s.kind, path: s.file, line: s.line, end: s.end, sig: s.sig,
@@ -143,7 +146,7 @@ function resize() {
   DPR = Math.min(devicePixelRatio || 1, 2);
   W = innerWidth; H = innerHeight;
   cv.width = W * DPR; cv.height = H * DPR;
-  dirty = true;
+  cacheKey++; dirty = true;
 }
 function fitCam() {
   const r = viewRect(), pad = S.view === "radial" ? 150 : 40;
@@ -170,7 +173,7 @@ function animateTo(newLayout, newCam, ms = 650) {
   }
   target = newLayout;
   const c0 = { ...cam }, c1 = newCam || { ...cam };
-  if (reduced || !ms) { L = new Map(newLayout); Object.assign(cam, c1); tw = null; edgesDirty = true; dirty = true; return; }
+  if (reduced || !ms) { L = new Map(newLayout); Object.assign(cam, c1); tw = null; edgesDirty = true; bumpCache(); return; }
   tw = { from, t0: performance.now(), ms, c0, c1 };
   dirty = true;
 }
@@ -185,7 +188,7 @@ function stepTween(now) {
   L = m;
   cam.x = tw.c0.x + (tw.c1.x - tw.c0.x) * e; cam.y = tw.c0.y + (tw.c1.y - tw.c0.y) * e;
   cam.k = tw.c0.k * Math.pow(tw.c1.k / tw.c0.k, e);
-  if (t >= 1) { tw = null; L = new Map(target); edgesDirty = true; }
+  if (t >= 1) { tw = null; L = new Map(target); edgesDirty = true; bumpCache(); }
   dirty = true;
 }
 
@@ -217,13 +220,41 @@ function tracePath(path, pts) {
   }
 }
 function inFocus(n) { return isAnc(S.focus, n); }
-function buildBundles() {
-  bundleAll = new Path2D();
-  for (const [a, b] of CALLS) {
-    if (!inFocus(a) || !inFocus(b) || a.parent === b.parent && a === b) continue;
-    const pts = bundlePoints(a, b);
-    if (pts) tracePath(bundleAll, pts);
+// Zoomed out, functions are less than a pixel apart: calls are merged into one line per pair of files, and the
+// line gets stronger with the number of calls it stands for. Zoomed in, every call is its own line.
+let bundleLevel = "";
+const fileOf = (n) => { while (n && n.t === "sym") n = n.parent; return n; };
+function buildBundles(k) {
+  const fine = (TAU / Math.max(1, S.focus.leaves)) * R * k >= 2.5;
+  bundleAll = [];
+  if (fine) {
+    const p = new Path2D();
+    for (const [a, b] of CALLS) {
+      if (!inFocus(a) || !inFocus(b)) continue;
+      const pts = bundlePoints(a, b);
+      if (pts) tracePath(p, pts);
+    }
+    bundleAll.push([p, Math.max(0.05, Math.min(0.22, 4 / Math.sqrt(CALLS.length + 1)))]);
+  } else {
+    const pairs = new Map();
+    for (const [a, b] of CALLS) {
+      if (!inFocus(a) || !inFocus(b)) continue;
+      const fa = fileOf(a), fb = fileOf(b);
+      if (!fa || !fb || fa === fb) continue;
+      const key = fa.id + "\0" + fb.id;
+      const e = pairs.get(key);
+      if (e) e[2]++; else pairs.set(key, [fa, fb, 1]);
+    }
+    const buckets = [[], [], [], []];
+    for (const [fa, fb, c] of pairs.values()) buckets[Math.min(3, Math.floor(Math.log2(c)))].push([fa, fb]);
+    const base = Math.max(0.03, Math.min(0.2, 3 / Math.sqrt(pairs.size + 1)));
+    buckets.forEach((list, i) => {
+      const p = new Path2D();
+      for (const [fa, fb] of list) { const pts = bundlePoints(fa, fb); if (pts) tracePath(p, pts); }
+      bundleAll.push([p, Math.min(0.6, base * (1 + i * 1.2))]);
+    });
   }
+  bundleLevel = (fine ? "fine" : "files") + "|" + S.focus.id;
   edgesDirty = false;
 }
 // calls touching a node (or anything inside it): partner -> count, by direction
@@ -243,7 +274,6 @@ function relatives(n) {
 // ---------- drawing
 const css = getComputedStyle(document.documentElement);
 const C = { ink: css.getPropertyValue("--ink").trim(), fg: "#e4e8ef", mut: "#8b97aa", line: "#263246", out: "#f0c36a", in: "#7fb0ff", accent: "#f0c36a" };
-const FONT = getComputedStyle(document.body).getPropertyValue("--mono") || "monospace";
 const MONO = css.getPropertyValue("--mono").trim(), SANS = css.getPropertyValue("--sans").trim();
 let rel = null;           // relatives of the selection, cached
 const fills = new Map();    // sunburst fill per node, so labels can pick a readable ink
@@ -254,59 +284,110 @@ function shade(hex, f) {   // mix a color toward the background: f 0 = color, 1 
   return `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * f)).join(",")})`;
 }
 
+// The heavy part (links, all calls, dots, rings) is drawn once into a cached image covering a bit more than the
+// window. Panning and zooming move that image; when the view settles it is redrawn sharp. Overlays (the selection's
+// calls, hover and selection rings) and labels are drawn live every frame.
+const cache = { cv: document.createElement("canvas"), key: "", x: 0, y: 0, k: 0, w: 0, h: 0 };
+let settleTimer = 0, cacheKey = 0;
+const bumpCache = () => { cacheKey++; dirty = true; };
+const keep = (n) => !S.sel || !rel || rel.keep.has(n);
+const worldT = (c, k, ox, oy) => c.setTransform(DPR * k, 0, 0, DPR * k, DPR * ox, DPR * oy);
+
+function renderStatic(c, k, lod) {
+  if (S.view === "radial") radialBase(c, k, lod); else sunBase(c, k);
+}
 function draw() {
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   ctx.fillStyle = C.ink; ctx.fillRect(0, 0, W, H);
-  ctx.setTransform(DPR * cam.k, 0, 0, DPR * cam.k, DPR * (W / 2 - cam.x * cam.k), DPR * (H / 2 - cam.y * cam.k));
-  if (S.view === "radial") drawRadial(); else drawSunburst();
+  const ox = W / 2 - cam.x * cam.k, oy = H / 2 - cam.y * cam.k;
+  if (tw) {                                        // animating: draw directly, skipping what is below a pixel
+    worldT(ctx, cam.k, ox, oy); renderStatic(ctx, cam.k, true);
+  } else {
+    const want = S.view + "|" + cacheKey;
+    const vx0 = -ox / cam.k, vy0 = -oy / cam.k, vw = W / cam.k, vh = H / cam.k;
+    const covered = cache.key === want && vx0 >= cache.x && vy0 >= cache.y && vx0 + vw <= cache.x + cache.w && vy0 + vh <= cache.y + cache.h;
+    const sharp = covered && Math.abs(Math.log(cam.k / cache.k)) < 0.04;
+    if (!covered || !sharp) {
+      clearTimeout(settleTimer);
+      if (!covered || cache.key !== want) rebuildCache(want);
+      else settleTimer = setTimeout(() => { rebuildCache(S.view + "|" + cacheKey); dirty = true; }, 140);
+    }
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    const sx = (cache.x - vx0) * cam.k, sy = (cache.y - vy0) * cam.k;
+    ctx.drawImage(cache.cv, sx, sy, cache.w * cam.k, cache.h * cam.k);
+  }
+  worldT(ctx, cam.k, ox, oy);
+  if (S.view === "radial") radialOverlay(ctx, cam.k); else sunOverlay(ctx, cam.k);
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   drawLabels();
 }
+function rebuildCache(want) {
+  const m = 0.35, vw = W / cam.k, vh = H / cam.k;
+  cache.x = cam.x - vw / 2 - vw * m; cache.y = cam.y - vh / 2 - vh * m;
+  cache.w = vw * (1 + 2 * m); cache.h = vh * (1 + 2 * m); cache.k = cam.k; cache.key = want;
+  const pw = Math.min(8192, Math.ceil(cache.w * cam.k * DPR)), ph = Math.min(8192, Math.ceil(cache.h * cam.k * DPR));
+  if (cache.cv.width !== pw || cache.cv.height !== ph) { cache.cv.width = pw; cache.cv.height = ph; }
+  const c = cache.cv.getContext("2d"), sc = pw / (cache.w * cam.k * DPR);
+  c.setTransform(1, 0, 0, 1, 0, 0); c.clearRect(0, 0, pw, ph);
+  c.setTransform(DPR * cam.k * sc, 0, 0, DPR * cam.k * sc, -cache.x * DPR * cam.k * sc, -cache.y * DPR * cam.k * sc);
+  renderStatic(c, cam.k, false);
+}
 
-function drawRadial() {
-  const px = 1 / cam.k;
-  // tree links
+const SIZE = { root: 9, area: 7, comp: 5.5, file: 3.6, sym: 2.2 };
+const ptOf = (n, p) => polar((p.a0 + p.a1) / 2, n.kids.length ? p.ro : R);
+function radialBase(c, k, lod) {
+  const px = 1 / k, tiny = (n, p) => n.t === "sym" && (p.a1 - p.a0) * R * k < (lod ? 1.2 : 1.6);   // functions closer than a pixel or two: shown as you zoom in
   const links = new Path2D();
   for (const [n, p] of L) {
-    if (!n.parent || !L.get(n.parent)) continue;
-    const q = L.get(n.parent), an = (p.a0 + p.a1) / 2, aq = (q.a0 + q.a1) / 2, rn = n.kids.length ? p.ro : R, rq = q.ro, rm = (rn + rq) / 2;
+    if (!n.parent || tiny(n, p)) continue;
+    const q = L.get(n.parent);
+    if (!q) continue;
+    const an = (p.a0 + p.a1) / 2, aq = (q.a0 + q.a1) / 2, rn = n.kids.length ? p.ro : R, rq = q.ro, rm = (rn + rq) / 2;
     const [x0, y0] = polar(aq, rq), [x1, y1] = polar(aq, rm), [x2, y2] = polar(an, rm), [x3, y3] = polar(an, rn);
     links.moveTo(x0, y0); links.bezierCurveTo(x1, y1, x2, y2, x3, y3);
   }
-  ctx.lineWidth = px; ctx.strokeStyle = "#2c394f"; ctx.stroke(links);
-  // all calls, faint; the selection's calls bright
-  if (!tw) {
-    if (edgesDirty || !bundleAll) buildBundles();
-    ctx.lineWidth = px; ctx.strokeStyle = S.sel ? "rgba(127,176,255,0.035)" : `rgba(127,176,255,${Math.max(0.05, Math.min(0.22, 40 / Math.sqrt(CALLS.length + 1) / 10))})`;
-    ctx.stroke(bundleAll);
-    if (S.sel && rel) {
-      for (const [dir, m, col] of [["in", rel.inn, C.in], ["out", rel.out, C.out]]) {
-        ctx.strokeStyle = col; ctx.setLineDash(dir === "in" ? [5 * px, 4 * px] : []);
-        for (const [t, c] of m) {
-          if (!inFocus(t)) continue;
-          const pts = dir === "out" ? bundlePoints(S.sel, t) : bundlePoints(t, S.sel);
-          if (!pts) continue;
-          const p = new Path2D(); tracePath(p, pts);
-          ctx.lineWidth = px * (1.2 + Math.min(2.5, Math.log2(c + 1)));
-          ctx.stroke(p);
-        }
-      }
-      ctx.setLineDash([]);
+  c.lineWidth = px; c.strokeStyle = "#2c394f"; c.stroke(links);
+  if (!lod) {
+    const lvl = ((TAU / Math.max(1, S.focus.leaves)) * R * k >= 2.5 ? "fine" : "files") + "|" + S.focus.id;
+    if (edgesDirty || !bundleAll || lvl !== bundleLevel) buildBundles(k);
+    c.lineWidth = px;
+    for (const [path, alpha] of bundleAll) {
+      c.strokeStyle = `rgba(127,176,255,${S.sel ? Math.min(0.03, alpha) : alpha})`;
+      c.stroke(path);
     }
   }
-  // nodes, batched by color
-  const byColor = new Map(), size = { root: 9, area: 7, comp: 5.5, file: 3.6, sym: 2.2 };
+  const byColor = new Map();
   for (const [n, p] of L) {
-    const a = (p.a0 + p.a1) / 2, r = n.kids.length ? p.ro : R, [x, y] = polar(a, r), s = size[n.t] * px;
-    const col = S.sel && rel && !(rel.out.has(n) || rel.inn.has(n) || isAnc(n, S.sel) || isAnc(S.sel, n)) ? "#3a4558" : colorOf(n);
-    (byColor.get(col) || byColor.set(col, new Path2D()).get(col)).moveTo(x + s, y), byColor.get(col).arc(x, y, s, 0, TAU);
+    if (tiny(n, p)) continue;
+    const [x, y] = ptOf(n, p), s = SIZE[n.t] * px;
+    const col = keep(n) ? colorOf(n) : "#2f394a";
+    let path = byColor.get(col);
+    if (!path) byColor.set(col, path = new Path2D());
+    path.moveTo(x + s, y); path.arc(x, y, s, 0, TAU);
   }
-  for (const [c, p] of byColor) { ctx.fillStyle = c; ctx.fill(p); }
+  for (const [col, path] of byColor) { c.fillStyle = col; c.fill(path); }
+}
+function radialOverlay(c, k) {
+  const px = 1 / k;
+  if (!tw && S.sel && rel) {
+    for (const [dir, m, col] of [["in", rel.inn, C.in], ["out", rel.out, C.out]]) {
+      c.strokeStyle = col; c.setLineDash(dir === "in" ? [5 * px, 4 * px] : []);
+      for (const [t, cnt] of m) {
+        if (!inFocus(t)) continue;
+        const pts = dir === "out" ? bundlePoints(S.sel, t) : bundlePoints(t, S.sel);
+        if (!pts) continue;
+        const path = new Path2D(); tracePath(path, pts);
+        c.lineWidth = px * (1.2 + Math.min(2.5, Math.log2(cnt + 1)));
+        c.stroke(path);
+      }
+    }
+    c.setLineDash([]);
+  }
   for (const [n, col, w] of [[S.hover, "#ffffff", 1.5], [S.sel, C.accent, 2.2]]) {
     const p = n && L.get(n);
     if (!p) continue;
-    const [x, y] = polar((p.a0 + p.a1) / 2, n.kids.length ? p.ro : R);
-    ctx.beginPath(); ctx.arc(x, y, (size[n.t] + 4) * px, 0, TAU); ctx.lineWidth = w * px; ctx.strokeStyle = col; ctx.stroke();
+    const [x, y] = ptOf(n, p);
+    c.beginPath(); c.arc(x, y, (SIZE[n.t] + 4) * px, 0, TAU); c.lineWidth = w * px; c.strokeStyle = col; c.stroke();
   }
 }
 
@@ -316,40 +397,48 @@ function ringPath(p) {
   path.arc(0, 0, p.ro, p.a0, p.a1); path.arc(0, 0, Math.max(0, p.ri), p.a1, p.a0, true); path.closePath();
   return path;
 }
-function drawSunburst() {
-  const px = 1 / cam.k;
-  const dimmed = S.sel && rel;
+function sunFill(n) {
+  const d = n.depth - S.focus.depth;
+  if (d === 0) return "#141c29";
+  let f = Math.min(0.5, 0.18 + (d - 1) * 0.09);
+  if (n.test) f = Math.min(0.75, f + 0.2);
+  return keep(n) ? shade(colorOf(n), f) : shade(colorOf(n), 0.86);
+}
+function sunBase(c, k) {
+  const px = 1 / k, groups = new Map(), edges = new Path2D();
   for (const [n, p] of L) {
-    if (p.a1 - p.a0 < 0.0004 && n.t === "sym") continue;
-    const d = n.depth - S.focus.depth;
-    if (d === 0) { ctx.fillStyle = "#141c29"; ctx.fill(ringPath(p)); continue; }
-    let f = Math.min(0.5, 0.18 + (d - 1) * 0.09);
-    if (n.test) f = Math.min(0.75, f + 0.2);
-    let col = shade(colorOf(n), f);
-    if (dimmed && !(rel.out.has(n) || rel.inn.has(n) || isAnc(n, S.sel) || isAnc(S.sel, n))) col = shade(colorOf(n), 0.86);
+    if ((p.a1 - p.a0) * p.ro * k < 0.35) continue;              // thinner than a third of a pixel: invisible anyway
+    const col = sunFill(n);
     fills.set(n, col);
-    ctx.fillStyle = col; ctx.fill(ringPath(p));
+    const rp = ringPath(p);
+    let g = groups.get(col);
+    if (!g) groups.set(col, g = new Path2D());
+    g.addPath(rp);
+    if (n !== S.focus && (p.a1 - p.a0) * p.ro * k > 2) edges.addPath(rp);
   }
-  ctx.lineWidth = px; ctx.strokeStyle = C.ink;
-  for (const [n, p] of L) if (n !== S.focus && (p.a1 - p.a0) * p.ro * cam.k > 2) ctx.stroke(ringPath(p));
+  for (const [col, g] of groups) { c.fillStyle = col; c.fill(g); }
+  c.lineWidth = px; c.strokeStyle = C.ink; c.stroke(edges);
+}
+function sunOverlay(c, k) {
+  const px = 1 / k;
   for (const [n, col, w] of [[S.hover, "#ffffff", 1.5], [S.sel, C.accent, 2.5]]) {
     const p = n && L.get(n);
     if (!p || n === S.focus) continue;
-    ctx.lineWidth = w * px; ctx.strokeStyle = col; ctx.stroke(ringPath(p));
+    c.lineWidth = w * px; c.strokeStyle = col; c.stroke(ringPath(p));
   }
   if (!tw && S.sel && rel && L.get(S.sel)) {           // the selection's calls, drawn through the middle
     const p = L.get(S.sel), am = (p.a0 + p.a1) / 2, [sx, sy] = polar(am, p.ri);
     for (const [m, col, dash] of [[rel.inn, C.in, true], [rel.out, C.out, false]]) {
-      ctx.strokeStyle = col; ctx.setLineDash(dash ? [5 * px, 4 * px] : []);
-      for (const [t, c] of m) {
+      c.strokeStyle = col; c.setLineDash(dash ? [5 * px, 4 * px] : []);
+      for (const [t, cnt] of m) {
         const q = L.get(t);
         if (!q) continue;
         const [tx, ty] = polar((q.a0 + q.a1) / 2, q.ri);
-        ctx.beginPath(); ctx.moveTo(sx, sy); ctx.bezierCurveTo(sx * 0.25, sy * 0.25, tx * 0.25, ty * 0.25, tx, ty);
-        ctx.lineWidth = px * (1.2 + Math.min(2.5, Math.log2(c + 1))); ctx.stroke();
+        c.beginPath(); c.moveTo(sx, sy); c.bezierCurveTo(sx * 0.25, sy * 0.25, tx * 0.25, ty * 0.25, tx, ty);
+        c.lineWidth = px * (1.2 + Math.min(2.5, Math.log2(cnt + 1))); c.stroke();
       }
     }
-    ctx.setLineDash([]);
+    c.setLineDash([]);
   }
 }
 
@@ -559,7 +648,12 @@ function setFocus(n, keepCam) {
 function select(n, opts = {}) {
   S.sel = n;
   rel = n ? relatives(n) : null;
-  dirty = true;
+  if (rel) {
+    rel.keep = new Set([...rel.out.keys(), ...rel.inn.keys()]);
+    for (let x = n; x; x = x.parent) rel.keep.add(x);
+    (function w(x) { rel.keep.add(x); for (const kk of x.kids) w(kk); })(n);
+  }
+  bumpCache();
   showSide(n).then(() => { if (opts.recenter !== false) dirty = true; });
   if (n && !inFocus(n)) setFocus(n.t === "area" ? n : N.get("a:" + n.area), false);
   else if (n && opts.fly) {
