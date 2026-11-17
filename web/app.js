@@ -89,18 +89,32 @@ const R = 1000;             // world radius of the outer ring
 
 function visibleUnder(f) { const out = []; (function w(n) { out.push(n); for (const k of n.kids) w(k); })(f); return out; }
 
+// Folded nodes (double-click in the Circle) stand in for everything under them: they become leaves on the rim and the
+// rest of the circle takes the room. Size by count gives every leaf the same share; size by flow gives more room to
+// what more front doors' paths go through.
+const FOLD = new Set();
+S.size = "count";
+const isLeaf = (n) => !n.kids.length || FOLD.has(n);
+const repOf = (n) => { let r = n; for (let x = n && n.parent; x; x = x.parent) if (FOLD.has(x)) r = x; return r; };
+let radialLeaves = 1;
 function layoutRadial(f) {
-  const out = new Map(), nodes = visibleUnder(f);
-  let maxD = 0;
-  for (const n of nodes) maxD = Math.max(maxD, n.depth - f.depth);
-  maxD = Math.max(1, maxD);
+  const out = new Map(), lw = new Map();
+  const wOf = (n) => {
+    if (lw.has(n)) return lw.get(n);
+    const v = n !== f && isLeaf(n) ? (S.size === "flow" && A.flow ? (A.flow.get(n) || 0) + 0.15 : 1) : n.kids.reduce((t, k) => t + wOf(k), 0) || 1;
+    lw.set(n, v); return v;
+  };
+  let maxD = 0, leaves = 0;
+  (function w(n) { maxD = Math.max(maxD, n.depth - f.depth); if (n !== f && isLeaf(n)) { leaves++; return; } for (const k of n.kids) w(k); })(f);
+  maxD = Math.max(1, maxD); radialLeaves = Math.max(1, leaves);
   const start = -Math.PI / 2;
   (function place(n, a0, a1) {
-    const d = n.depth - f.depth;
-    const ro = !n.kids.length ? R : d === 0 ? 0 : R * (0.3 + 0.62 * (d - 1) / Math.max(1, maxD - 1));   // leaves sit on the rim
+    const d = n.depth - f.depth, leaf = n !== f && isLeaf(n);
+    const ro = leaf ? R : d === 0 ? 0 : R * (0.3 + 0.62 * (d - 1) / Math.max(1, maxD - 1));   // leaves sit on the rim
     out.set(n, { a0, a1, ri: ro, ro });
+    if (leaf) return;
     // a slice in proportion to what each child holds, with a floor near the middle so small areas stay visible
-    const floor = d === 0 ? 0.04 : d === 1 ? 0.02 : 0, w = n.kids.map((k) => Math.max(k.leaves, floor * n.leaves));
+    const floor = d === 0 ? 0.04 : d === 1 ? 0.02 : 0, w = n.kids.map((k) => Math.max(wOf(k), floor * wOf(n)));
     const tot = w.reduce((x, y) => x + y, 0) || 1;
     let a = a0;
     n.kids.forEach((k, i) => { const span = (a1 - a0) * w[i] / tot; place(k, a, a + span); a += span; });
@@ -199,6 +213,8 @@ function stepTween(now) {
 let edgesDirty = true, bundleAll = null;
 const BETA = 0.85;
 function bundlePoints(a, b) {
+  a = repOf(a); b = repOf(b);
+  if (a === b) return null;
   const pa = pathOf(a), pb = pathOf(b);
   let i = 0;
   while (i < pa.length && i < pb.length && pa[i] === pb[i]) i++;
@@ -208,7 +224,7 @@ function bundlePoints(a, b) {
     const p = L.get(n);
     if (!p) return null;
     const am = (p.a0 + p.a1) / 2;
-    pts.push(polar(am, n.kids.length ? p.ro : R));
+    pts.push(polar(am, isLeaf(n) ? R : p.ro));
   }
   if (pts.length < 2) return null;
   const [x0, y0] = pts[0], [xn, yn] = pts[pts.length - 1], k = pts.length - 1;
@@ -228,12 +244,14 @@ function inFocus(n) { return isAnc(S.focus, n); }
 let bundleLevel = "";
 const fileOf = (n) => { while (n && n.t === "sym") n = n.parent; return n; };
 function buildBundles(k) {
-  const fine = (TAU / Math.max(1, S.focus.leaves)) * R * k >= 2.5;
+  const fine = (TAU / radialLeaves) * R * k >= 2.5;
   bundleAll = [];
   if (fine) {
-    const p = new Path2D();
+    const p = new Path2D(), done = new Set();
     for (const [a, b] of CALLS) {
       if (!inFocus(a) || !inFocus(b)) continue;
+      const k2 = FOLD.size ? repOf(a).id + "\0" + repOf(b).id : null;
+      if (k2) { if (done.has(k2)) continue; done.add(k2); }
       const pts = bundlePoints(a, b);
       if (pts) tracePath(p, pts);
     }
@@ -242,7 +260,7 @@ function buildBundles(k) {
     const pairs = new Map();
     for (const [a, b] of CALLS) {
       if (!inFocus(a) || !inFocus(b)) continue;
-      const fa = fileOf(a), fb = fileOf(b);
+      const fa = repOf(fileOf(a)), fb = repOf(fileOf(b));
       if (!fa || !fb || fa === fb) continue;
       const key = fa.id + "\0" + fb.id;
       const e = pairs.get(key);
@@ -257,7 +275,7 @@ function buildBundles(k) {
       bundleAll.push([p, Math.min(0.6, base * (1 + i * 1.2))]);
     });
   }
-  bundleLevel = (fine ? "fine" : "files") + "|" + S.focus.id;
+  bundleLevel = (fine ? "fine" : "files") + "|" + S.focus.id + "|" + FOLD.size + "|" + S.size;
   edgesDirty = false;
 }
 // calls touching a node (or anything inside it): partner -> count, by direction
@@ -337,7 +355,7 @@ function rebuildCache(want) {
 }
 
 const SIZE = { root: 9, area: 7, comp: 5.5, file: 3.6, sym: 2.2 };
-const ptOf = (n, p) => polar((p.a0 + p.a1) / 2, n.kids.length ? p.ro : R);
+const ptOf = (n, p) => polar((p.a0 + p.a1) / 2, isLeaf(n) ? R : p.ro);
 function radialBase(c, k, lod) {
   const px = 1 / k, tiny = (n, p) => n.t === "sym" && (p.a1 - p.a0) * R * k < (lod ? 1.2 : 1.6);   // functions closer than a pixel or two: shown as you zoom in
   const links = new Path2D();
@@ -345,13 +363,13 @@ function radialBase(c, k, lod) {
     if (!n.parent || tiny(n, p)) continue;
     const q = L.get(n.parent);
     if (!q) continue;
-    const an = (p.a0 + p.a1) / 2, aq = (q.a0 + q.a1) / 2, rn = n.kids.length ? p.ro : R, rq = q.ro, rm = (rn + rq) / 2;
+    const an = (p.a0 + p.a1) / 2, aq = (q.a0 + q.a1) / 2, rn = isLeaf(n) ? R : p.ro, rq = q.ro, rm = (rn + rq) / 2;
     const [x0, y0] = polar(aq, rq), [x1, y1] = polar(aq, rm), [x2, y2] = polar(an, rm), [x3, y3] = polar(an, rn);
     links.moveTo(x0, y0); links.bezierCurveTo(x1, y1, x2, y2, x3, y3);
   }
   c.lineWidth = px; c.strokeStyle = "#2c394f"; c.stroke(links);
   if (!lod) {
-    const lvl = ((TAU / Math.max(1, S.focus.leaves)) * R * k >= 2.5 ? "fine" : "files") + "|" + S.focus.id;
+    const lvl = ((TAU / radialLeaves) * R * k >= 2.5 ? "fine" : "files") + "|" + S.focus.id + "|" + FOLD.size + "|" + S.size;
     if (edgesDirty || !bundleAll || lvl !== bundleLevel) buildBundles(k);
     c.lineWidth = px;
     for (const [path, alpha] of bundleAll) {
@@ -359,11 +377,12 @@ function radialBase(c, k, lod) {
       c.stroke(path);
     }
   }
-  const byColor = new Map();
+  const byColor = new Map(), keepRep = S.sel && rel && FOLD.size ? new Set([...rel.keep].map(repOf)) : null;
   for (const [n, p] of L) {
     if (tiny(n, p)) continue;
-    const [x, y] = ptOf(n, p), s = SIZE[n.t] * px;
-    const col = keep(n) ? colorOf(n) : "#2f394a";
+    const folded = FOLD.has(n), [x, y] = ptOf(n, p), s = (SIZE[n.t] + (folded ? 4 : 0)) * px;
+    const col = keep(n) || (keepRep && keepRep.has(n)) ? colorOf(n) : "#2f394a";
+    if (folded) { c.beginPath(); c.arc(x, y, s + 4 * px, 0, TAU); c.setLineDash([3 * px, 3 * px]); c.lineWidth = 1.5 * px; c.strokeStyle = col; c.stroke(); c.setLineDash([]); }
     let path = byColor.get(col);
     if (!path) byColor.set(col, path = new Path2D());
     path.moveTo(x + s, y); path.arc(x, y, s, 0, TAU);
@@ -452,15 +471,15 @@ function drawLabels() {
   const free = (x, y, w, h) => { for (const b of boxes) if (x < b[0] + b[2] && x + w > b[0] && y < b[1] + b[3] && y + h > b[1]) return false; boxes.push([x, y, w, h]); return true; };
   if (S.view === "radial") {
     let drawn = 0;
-    const leafStep = (TAU / Math.max(1, f.leaves)) * R * cam.k;       // pixels between neighbouring leaves
+    const leafStep = (TAU / radialLeaves) * R * cam.k;       // pixels between neighbouring leaves
     for (const [n, p] of L) {
       if (drawn > 1500) break;
-      const am = (p.a0 + p.a1) / 2, r = n.kids.length ? p.ro : R;
+      const am = (p.a0 + p.a1) / 2, r = isLeaf(n) ? R : p.ro;
       const [wx, wy] = polar(am, r), [x, y] = toScreen(wx, wy);
       if (x < -200 || y < -50 || x > W + 200 || y > H + 50) continue;
       const span = (p.a1 - p.a0) * r * cam.k;
       const big = n.t === "area" || n.t === "root" || (n.t === "comp" && span > 40) || n === S.sel || n === S.hover;
-      const leaf = !n.kids.length;
+      const leaf = isLeaf(n) && n !== f;
       if (!big && !(leaf && leafStep > 10.5) && !(n.t === "file" && span > 60)) continue;
       drawn++;
       if (big && !leaf || n.t === "root") {
@@ -481,7 +500,7 @@ function drawLabels() {
       ctx.font = `${n === S.sel ? 600 : 400} ${Math.max(10, Math.min(13, leafStep * 0.9))}px ${MONO}`;
       ctx.fillStyle = n === S.sel ? C.accent : S.sel && rel && !(rel.out.has(n) || rel.inn.has(n) || n === S.sel) ? "#4d596b" : rel && rel.out.has(n) ? C.out : rel && rel.inn.has(n) ? C.in : "#c3cbd7";
       ctx.textAlign = flip ? "right" : "left";
-      ctx.fillText(label(n), flip ? -7 : 7, 0);
+      ctx.fillText(FOLD.has(n) ? `${n.t === "area" || n.t === "comp" ? n.name : label(n)}  ▸ ${n.nFiles > 1 ? n.nFiles + " files, " : ""}${n.nFns} fn` : label(n), flip ? -7 : 7, 0);
       ctx.restore(); ctx.textAlign = "left";
     }
   } else {
@@ -522,7 +541,7 @@ function hit(sx, sy) {
   if (S.view === "radial") {
     let best = null, bd = (10 / cam.k) ** 2;
     for (const [n, p] of L) {
-      const [x, y] = polar((p.a0 + p.a1) / 2, n.kids.length ? p.ro : R);
+      const [x, y] = polar((p.a0 + p.a1) / 2, isLeaf(n) ? R : p.ro);
       const d = (x - wx) ** 2 + (y - wy) ** 2;
       if (d < bd) { bd = d; best = n; }
     }
@@ -648,6 +667,7 @@ function setFocus(n, keepCam) {
   S.focus = n;
   edgesDirty = true;
   crumbs();
+  if (S.sel && !$("#side").hidden) showSide(S.sel);       // the panel's fold button depends on where you are
   animateTo(layoutFor(S.view, n), keepCam ? null : fitCam());
 }
 // Views. Circle and Rings draw on the canvas; the others (Start here, Walk, Tree, 3D) are modules that register here.
@@ -683,7 +703,7 @@ function select(n, opts = {}) {
     requestAnimationFrame(() => {
       const p = target.get(n) || L.get(n);
       if (!p) return;
-      const [x, y] = polar((p.a0 + p.a1) / 2, S.view === "radial" ? (n.kids.length ? p.ro : R) : (p.ri + p.ro) / 2);
+      const [x, y] = polar((p.a0 + p.a1) / 2, S.view === "radial" ? (isLeaf(n) ? R : p.ro) : (p.ri + p.ro) / 2);
       const r = viewRect(), k = Math.max(cam.k, fitCam().k * 1.6);
       animateTo(target, { x: x - (r.x + r.w / 2 - W / 2) / k, y: y - (r.y + r.h / 2 - H / 2) / k, k }, 600);
     });
@@ -716,6 +736,11 @@ $("#zoombar").addEventListener("click", (e) => {
   if (z === "in") zoomBy(1.5); else if (z === "out") zoomBy(1 / 1.5);
   else if (z === "fit") animateTo(target, fitCam(), 400);
   else if (z === "up" && S.focus.parent) setFocus(S.focus.parent);
+  else if (z === "open") { FOLD.clear(); b.closest("#zoombar").classList.remove("folded"); edgesDirty = true; bumpCache(); animateTo(layoutRadial(S.focus), null, 600); }
+  else if (z === "count" || z === "flow") {
+    S.size = z; for (const x of document.querySelectorAll("[data-zoom=count],[data-zoom=flow]")) x.setAttribute("aria-pressed", String(x.dataset.zoom === z));
+    edgesDirty = true; bumpCache(); animateTo(layoutRadial(S.focus), null, 700);
+  }
 });
 
 // ---------- pointer: hover, click, drag to pan, wheel and pinch to zoom
@@ -743,7 +768,8 @@ cv.addEventListener("pointermove", (e) => {
   if (n !== S.hover) { S.hover = n; dirty = true; cv.style.cursor = n ? "pointer" : "default"; }
   if (n) {
     tip.hidden = false;
-    tip.innerHTML = `${esc(label(n))}<small>${esc(n.t === "sym" ? n.path + ":" + n.line : n.t === "file" ? n.path + " · " + n.lines + " lines" : n.nFiles + " files · " + n.nFns + " functions")}</small>`;
+    const fl = A.flow && A.flow.get(n), hint = S.view === "radial" && n.kids.length && n !== S.focus ? (FOLD.has(n) ? " · double-click to open" : " · double-click to fold") : "";
+    tip.innerHTML = `${esc(label(n))}<small>${esc(n.t === "sym" ? n.path + ":" + n.line : n.t === "file" ? n.path + " · " + n.lines + " lines" : n.nFiles + " files · " + n.nFns + " functions")}${fl ? ` · on ${fl} front-door path${fl === 1 ? "" : "s"}` : ""}${hint}</small>`;
     const x = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8), y = Math.min(e.clientY + 14, innerHeight - tip.offsetHeight - 8);
     tip.style.left = x + "px"; tip.style.top = y + "px";
   } else tip.hidden = true;
@@ -759,8 +785,28 @@ cv.addEventListener("pointerup", (e) => {
   const n = hit(e.clientX, e.clientY);
   if (!n) { if (S.sel) select(null); return; }
   if (n === S.focus) { if (S.focus.parent) setFocus(S.focus.parent); return; }
-  if ((n.t === "area" || n.t === "comp") && n !== S.focus) { setFocus(n); select(n, { recenter: false }); return; }
+  if ((n.t === "area" || n.t === "comp") && n !== S.focus && !FOLD.has(n)) {
+    clearTimeout(clickTimer);
+    clickTimer = setTimeout(() => { setFocus(n); select(n, { recenter: false }); }, S.view === "radial" ? 260 : 0);
+    return;
+  }
   select(n);
+});
+let clickTimer = 0;
+function fold(n) {
+  if (!n || !n.kids.length || n === S.focus || n === ROOT) return;
+  if (FOLD.has(n)) FOLD.delete(n);
+  else { FOLD.add(n); for (const x of [...FOLD]) if (x !== n && isAnc(n, x)) FOLD.delete(x); }
+  edgesDirty = true; bumpCache();
+  $("#zoombar").classList.toggle("folded", FOLD.size > 0);
+  animateTo(layoutRadial(S.focus), null, 600);
+  if (S.sel) showSide(S.sel);
+}
+cv.addEventListener("dblclick", (e) => {
+  if (S.view !== "radial") return;
+  clearTimeout(clickTimer);
+  const n = hit(e.clientX, e.clientY);
+  if (n) fold(n);
 });
 cv.addEventListener("pointercancel", endPtr);
 cv.addEventListener("pointerleave", () => { if (S.hover) { S.hover = null; dirty = true; } tip.hidden = true; });
@@ -892,12 +938,15 @@ $("#keyBtn").addEventListener("click", () => {
 // Shared with the view modules below.
 const A = { side: [], keyRender, G, N, S, ROOT, CALLS, callOut, callIn, colorOf, label, pathOf, isAnc, esc, $, relatives, select, go, setView, VIEWS,
   sourceOf, hl, showSide, unpack, reduced, areaNames, COLOR, C, MONO, SANS, layoutRadial, R, TAU, polar };
+A.side.unshift((n) => S.view === "radial" && n && n.kids && n.kids.length && n !== S.focus && n !== ROOT
+  ? `<div class="acts small"><button class="cta ghost" data-foldc="${esc(n.id)}">${FOLD.has(n) ? "Open in Circle" : "Fold in Circle"}</button></div>` : "");
+document.addEventListener("click", (e) => { const b = e.target.closest("[data-foldc]"); if (b) fold(N.get(b.dataset.foldc)); });
 /*{{MODULES}}*/
 
 // ---------- start
 resize();
 crumbs();
-try { if (localStorage.getItem("atlas-key") !== "0") { $("#key").hidden = false; $("#keyBtn").setAttribute("aria-expanded", "true"); } } catch (_) { $("#key").hidden = false; }
+try { if (localStorage.getItem("atlas-key") === "1") { $("#key").hidden = false; $("#keyBtn").setAttribute("aria-expanded", "true"); } } catch (_) {}
 L = new Map(); target = layoutFor("radial", ROOT);
 Object.assign(cam, fitCam());
 const startView = (location.hash || "").slice(1);
@@ -909,5 +958,5 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.__atlas = { N, S, G };
+window.__atlas = { N, S, G, FOLD, screenOf: (n) => { const p = L.get(n); if (!p) return null; const [x, y] = ptOf(n, p); return toScreen(x, y); } };
 })();

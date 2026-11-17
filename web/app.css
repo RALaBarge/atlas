@@ -519,3 +519,11 @@ body.side-open #maps { padding-right: calc(var(--side-w, min(620px, 46vw)) + 28p
 .leaves { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .leaves button { all: unset; cursor: pointer; font: 600 13px var(--mono); color: #b8c6dc; border-bottom: 1px dotted var(--line-hi); }
 .leaves button:hover { color: var(--accent); } .leaves span { font: 11.5px var(--mono); color: var(--mut); }
+
+#zoombar { flex-wrap: wrap; align-items: center; max-width: calc(100% - 24px); }
+#zoombar .zsep { width: 1px; align-self: stretch; background: var(--line); margin: 0 2px; }
+#zoombar .zl { font-size: 11px; color: var(--mut); padding: 0 2px 0 4px; }
+#zoombar button[data-zoom=count], #zoombar button[data-zoom=flow], #zoombar .zopen { font-size: 12px; }
+#zoombar button[aria-pressed=true] { background: var(--accent); color: var(--ink); border-color: var(--accent); }
+#zoombar .zopen { display: none; } #zoombar.folded .zopen { display: grid; }
+body[data-view=sunburst] #zoombar .zsep, body[data-view=sunburst] #zoombar .zl, body[data-view=sunburst] #zoombar [data-zoom=count], body[data-view=sunburst] #zoombar [data-zoom=flow], body[data-view=sunburst] #zoombar .zopen { display: none; }
