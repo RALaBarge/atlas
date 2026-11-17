@@ -598,7 +598,7 @@ async function showSide(n) {
   let h = `<div class="info"><h2>${esc(label(n))}</h2><div class="chips">${chips.join("")}</div>`;
   const doc = n.t === "sym" ? n.doc : n.t === "file" ? n.head : n === ROOT && G.readme ? G.readme.lead : "";
   if (doc) h += `<p class="doc">${esc(doc)}</p>`;
-  if (A.sideExtras) h += A.sideExtras(n);
+  for (const f of A.side) h += f(n) || "";
   if (n.t !== "root") h += `<div class="rel">${relList(r.out, "Calls", "out")}${relList(r.inn, "Called by", "in")}</div>`;
   if (n.t !== "file" && n.t !== "sym" && n.kids.length)
     h += `<ul class="kids">${n.kids.map((k) => `<li><button data-go="${esc(k.id)}">${esc(label(k))} <small>${k.t === "file" ? k.lines + "L" : k.nFns + " fn"}</small></button></li>`).join("")}</ul>`;
@@ -658,8 +658,9 @@ function setView(v, quiet) {
   document.body.dataset.view = v;
   for (const x of document.querySelectorAll("[data-view]")) x.setAttribute("aria-pressed", String(x.dataset.view === v || (v === "walk" && x.dataset.view === "start")));
   try { history.replaceState(null, "", "#" + v); } catch (_) {}
+  keyRender();
   if (isMap(v)) {
-    edgesDirty = true; crumbs(); legend(); resize();
+    edgesDirty = true; crumbs(); resize();
     animateTo(layoutFor(v, S.focus), fitCam(), isMap(was) ? 800 : 0);
   } else VIEWS[v].show();
 }
@@ -804,20 +805,82 @@ $("#results").addEventListener("click", (e) => {
 });
 document.addEventListener("pointerdown", (e) => { if (!e.target.closest(".search")) $("#results").hidden = true; });
 
-// ---------- legend
-function legend() {
-  $("#legend").innerHTML = areaNames.map((a) => `<span><i style="background:${COLOR[a]}"></i>${esc(N.get("a:" + a).name)}</span>`).join("") +
-    `<span><i class="ln" style="border-color:${C.out}"></i>calls</span><span><i class="ln in" style="border-color:${C.in}"></i>called by</span>`;
+// ---------- key: what every color, line and mark means, for the view you are in
+const KEYS = { lines: {}, marks: {} };
+const kl = (cls, style, text) => `<li><i class="k-${cls}" ${style ? `style="${style}"` : ""}></i><span>${text}</span></li>`;
+function keyHTML() {
+  const v = S.view, out = [];
+  const sel = `when something is selected`;
+  if (v !== "start" && v !== "walk") {
+    out.push(`<h4>Areas</h4><ul class="k-areas">${areaNames.map((a) => kl("dot", `background:${COLOR[a]}`, esc(N.get("a:" + a).name))).join("")}</ul>`);
+    const lines = [kl("line", `border-color:${C.out}`, `<b>calls</b>: what the selected item calls`), kl("line dash", `border-color:${C.in}`, `<b>called by</b>: what calls the selected item`)];
+    if (v === "radial") lines.push(kl("line", "border-color:#7fb0ff;opacity:.5", "all calls, bundled through the tree; zoomed out, one line per pair of files, brighter = more calls"),
+      kl("line", "border-color:#3a4a62", "contains: repo → area → file → function"));
+    if (v === "sunburst") lines.push(kl("line", "border-color:#7fb0ff;opacity:.5", "calls of the selection run through the middle"));
+    if (v === "tree") lines.push(kl("line", "border-color:#3a4a62", "contains"), kl("line", `border-color:${C.accent}`, "the path from the repo down to the selection"));
+    if (v === "planes") lines.push(kl("line", "border-color:#7fb0ff;opacity:.5", "all calls, arcing under the function plane"),
+      kl("line", "border-color:#8b97aa;opacity:.6", "contains: area → file → function, down through the planes"),
+      kl("line", "border-color:#f4efe2", "what runs → the files it starts"),
+      kl("line", `border-color:${C.accent}`, "a walk being played; the gold ball is the current call"));
+    out.push(`<h4>Lines</h4><ul>${lines.join("")}</ul>`);
+  }
+  const marks = [];
+  if (v === "radial") marks.push(kl("dot big", "background:#9aa7bb", "area"), kl("dot mid", "background:#9aa7bb", "file"), kl("dot small", "background:#9aa7bb", "function (on the rim; they appear as you zoom in)"),
+    kl("ring", `border-color:${C.accent}`, "selected"), kl("dot", "background:#2f394a", `dimmed: not connected to the selection`));
+  if (v === "sunburst") marks.push(kl("box", "background:#6fa3e8", "each ring is one level: area, component, file, class, function"),
+    kl("box", "background:#6fa3e8;width:26px", "width = lines of code; a function sits where it is in its file"), kl("box", "background:#36506f", "darker = test code"));
+  if (v === "tree") marks.push(kl("box dashed", "", "dashed border: test file"), kl("dot small", `background:${"#e57373"}`, "red dot: nothing calls this"),
+    kl("txt", "", "<b style='color:#e6a35a'>◷</b> does something often slow (network, sleep, programs, database)"), kl("txt", "", "<b>+N</b> closed branch with N children; <b>→N / ←N</b> calls to / from that box"));
+  if (v === "planes") marks.push(kl("txt", "", "planes, top to bottom: <b>What runs</b>, <b>Areas</b>, <b>Files</b>, <b>Functions</b>"),
+    kl("txt", "", "on the Functions plane, distance from the middle = where the function sits in its file"),
+    kl("dot", "background:#f4efe2", "a service, container or unit"), kl("dot big", "background:#9aa7bb;box-shadow:0 0 0 3px #9aa7bb55", "collapsed: everything under it folded in (double-click to open)"));
+  if (v === "start" || v === "walk") marks.push(kl("tag", "", "<em>network</em> <em>sleep / retry</em> <em>runs a program</em> <em>database</em>: calls that are often slow; a hint where to look, not a timing"),
+    kl("txt", "", "<b>slow below</b>: how many slow-looking steps sit under this one"), kl("txt", "", "<b>shown above</b>: already walked earlier on this page"));
+  marks.push(kl("txt", "", "side panel tags: <b style='color:#7fc98a'>reached by tests</b>, <b style='color:#e57373'>nothing calls this</b>, <b style='color:#e6a35a'>network / runs a program / …</b> = often slow"));
+  out.push(`<h4>Marks</h4><ul>${marks.join("")}</ul>`);
+  return out.join("");
 }
+function keyRender() {
+  const k = $("#key");
+  if (k.hidden) return;
+  k.innerHTML = keyHTML();
+  if (innerWidth > 760) k.style.top = ($("#bar").getBoundingClientRect().bottom + 8) + "px";
+}
+$("#keyBtn").addEventListener("click", () => {
+  const k = $("#key"), open = k.hidden;
+  k.hidden = !open; $("#keyBtn").setAttribute("aria-expanded", String(open)); keyRender();
+  try { localStorage.setItem("atlas-key", open ? "1" : "0"); } catch (_) {}
+});
+
+// ---------- side panel width: drag its edge (its top edge on a phone). The views underneath are not redrawn.
+(() => {
+  const side = $("#side"), grip = $("#sideGrip");
+  try { const w = +localStorage.getItem("atlas-side-w"); if (w) document.documentElement.style.setProperty("--side-w", w + "px"); } catch (_) {}
+  let drag = null;
+  grip.addEventListener("pointerdown", (e) => { drag = { x: e.clientX, y: e.clientY, w: side.offsetWidth, top: side.getBoundingClientRect().top }; grip.setPointerCapture(e.pointerId); e.preventDefault(); });
+  grip.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    if (innerWidth > 760) {
+      const w = Math.max(320, Math.min(innerWidth - 120, drag.w + (drag.x - e.clientX)));
+      document.documentElement.style.setProperty("--side-w", w + "px");
+    } else {
+      const t = Math.max(80, Math.min(innerHeight - 160, drag.top + (e.clientY - drag.y)));
+      document.documentElement.style.setProperty("--side-top", t + "px");
+    }
+  });
+  const end = () => { if (!drag) return; drag = null; try { localStorage.setItem("atlas-side-w", String(side.offsetWidth)); } catch (_) {} };
+  grip.addEventListener("pointerup", end); grip.addEventListener("pointercancel", end);
+})();
 
 // Shared with the view modules below.
-const A = { G, N, S, ROOT, CALLS, callOut, callIn, colorOf, label, pathOf, isAnc, esc, $, relatives, select, go, setView, VIEWS,
+const A = { side: [], keyRender, G, N, S, ROOT, CALLS, callOut, callIn, colorOf, label, pathOf, isAnc, esc, $, relatives, select, go, setView, VIEWS,
   sourceOf, hl, showSide, unpack, reduced, areaNames, COLOR, C, MONO, SANS, layoutRadial, R, TAU, polar };
 /*{{MODULES}}*/
 
 // ---------- start
 resize();
-crumbs(); legend();
+crumbs();
+try { if (localStorage.getItem("atlas-key") !== "0") { $("#key").hidden = false; $("#keyBtn").setAttribute("aria-expanded", "true"); } } catch (_) { $("#key").hidden = false; }
 L = new Map(); target = layoutFor("radial", ROOT);
 Object.assign(cam, fitCam());
 const startView = (location.hash || "").slice(1);

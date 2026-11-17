@@ -28,9 +28,11 @@
     <button data-view="tree" aria-pressed="false">Tree</button>
     <button data-view="planes" aria-pressed="false">3D</button>
   </nav>
+  <button id="keyBtn" class="keybtn" aria-expanded="false" aria-controls="key">Key</button>
 </header>
 
 <aside id="side" class="panel" hidden>
+  <div class="grip" id="sideGrip" title="Drag to resize" aria-hidden="true"></div>
   <div class="side-head">
     <div class="trail" id="sideTrail"></div>
     <button class="x" id="sideClose" aria-label="Close">×</button>
@@ -39,7 +41,7 @@
 </aside>
 
 <nav id="crumbs" class="panel" aria-label="Where you are"></nav>
-<div id="legend" class="panel"></div>
+<section id="key" class="panel" hidden aria-label="Key"></section>
 
 <!--{{DATA}}-->
 <!--{{LIBS}}-->

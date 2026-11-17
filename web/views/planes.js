@@ -88,32 +88,70 @@
     });
     scene.add(mesh);
 
-    // links: containment (down through the planes), runtime to its files, and calls arcing under the function plane
+    // links: containment (down through the planes), runtime to its files, and calls arcing under the function plane.
+    // Collapsed nodes fold everything under them in: their lines are redrawn to the collapsed node, merged.
+    const collapsed = new Set();
+    const rep = (n) => { let r = n; for (let x = n && n.parent; x; x = x.parent) if (collapsed.has(x)) r = x; return r; };
+    const posOf = (n) => pos.get(n && n.t === "rt" ? n : rep(n));
     const seg = (arr, a, b) => arr.push(a.x, a.y, a.z, b.x, b.y, b.z);
-    const lineObj = (arr, color, opacity, blending) => {
-      const g = new T.BufferGeometry(); g.setAttribute("position", new T.Float32BufferAttribute(arr, 3));
-      const o = new T.LineSegments(g, new T.LineBasicMaterial({ color, transparent: true, opacity, depthWrite: false, blending: blending || T.NormalBlending }));
+    const lineObj = (color, opacity, blending) => {
+      const o = new T.LineSegments(new T.BufferGeometry(), new T.LineBasicMaterial({ color, transparent: true, opacity, depthWrite: false, blending: blending || T.NormalBlending }));
       scene.add(o); return o;
     };
-    const contain = [];
-    for (const n of all) { if (n.t === "rt") continue; const p = n.parent && pos.get(n.parent); if (p) seg(contain, p, pos.get(n)); }
-    lineObj(contain, 0x8b97aa, 0.08);
-    const rtl = [];
-    for (const r of rts) for (const f of r.files) if (pos.get(f)) seg(rtl, pos.get(r), pos.get(f));
-    if (rtl.length) lineObj(rtl, 0xf4efe2, 0.35);
+    const setLines = (o, arr) => { o.geometry.dispose(); o.geometry = new T.BufferGeometry(); o.geometry.setAttribute("position", new T.Float32BufferAttribute(arr, 3)); };
     const arc = (a, b, segs, arr) => {
-      const d = a.distanceTo(b), mid = a.clone().add(b).multiplyScalar(0.5); mid.y -= 40 + d * 0.28;
+      const d = a.distanceTo(b), mid = a.clone().add(b).multiplyScalar(0.5);
+      if (Math.abs(a.y - b.y) < 1) mid.y -= 40 + d * 0.28; else mid.y = (a.y + b.y) / 2;
       const c = new T.QuadraticBezierCurve3(a, mid, b), pts = c.getPoints(segs);
       for (let i = 0; i < pts.length - 1; i++) seg(arr, pts[i], pts[i + 1]);
       return c;
     };
-    const calls = [], segs = A.CALLS.length > 15000 ? 4 : 8;
-    for (const [s, t] of A.CALLS) { const a = pos.get(s), b = pos.get(t); if (a && b && s.t === "sym") arc(a, b, segs, calls); }
-    lineObj(calls, 0x7fb0ff, Math.max(0.03, Math.min(0.16, 6 / Math.sqrt(A.CALLS.length + 1))), T.AdditiveBlending);
+    const containL = lineObj(0x8b97aa, 0.08), rtL = lineObj(0xf4efe2, 0.35);
+    const callL = lineObj(0x7fb0ff, Math.max(0.03, Math.min(0.16, 6 / Math.sqrt(A.CALLS.length + 1))), T.AdditiveBlending);
+    const SCALE = new Map();
+    function rebuild() {
+      // nodes: hidden ones shrink to nothing, collapsed ones grow with what they hold
+      all.forEach((n, i) => {
+        const r = n.t === "rt" ? n : rep(n), hidden = r !== n;
+        let s = hidden ? 0 : SZ[n.t] || 4;
+        if (collapsed.has(n)) s = Math.max(s, Math.min(34, (SZ[n.t] || 4) + 3 * Math.sqrt(n.nFns + n.nFiles)));
+        SCALE.set(n, s);
+        m4.makeScale(s, s, s).setPosition(pos.get(n)); mesh.setMatrixAt(i, m4);
+      });
+      mesh.instanceMatrix.needsUpdate = true;
+      const contain = [], rtl = [], calls = [], seen = new Set();
+      for (const n of all) { if (n.t === "rt" || rep(n) !== n) continue; const p = n.parent && pos.get(n.parent); if (p) seg(contain, p, pos.get(n)); }
+      for (const r of rts) for (const f of r.files) { const b = posOf(f); if (b) seg(rtl, pos.get(r), b); }
+      const segs = A.CALLS.length > 15000 ? 4 : 8;
+      for (const [s, t] of A.CALLS) {
+        if (s.t !== "sym" && !collapsed.size) continue;
+        const rs = rep(s), rt = rep(t);
+        if (rs === rt) continue;
+        const k = rs.id + "\0" + rt.id;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        const a = pos.get(rs), b = pos.get(rt);
+        if (a && b) arc(a, b, segs, calls);
+      }
+      setLines(containL, contain); setLines(rtL, rtl); setLines(callL, calls);
+      need = true;
+    }
+    function toggle(n) {
+      if (!n || n.t === "rt" || !n.kids || !n.kids.length) return;
+      if (collapsed.has(n)) collapsed.delete(n);
+      else { collapsed.add(n); for (const x of [...collapsed]) if (x !== n && A.isAnc(n, x)) collapsed.delete(x); }
+      rebuild(); highlight(S.sel && rep(S.sel) === S.sel ? S.sel : null);
+      if (S.sel) A.showSide(S.sel);
+    }
+    function collapseTo(level) {
+      collapsed.clear();
+      if (level) for (const n of all) if (n.t === level && n.kids.length) collapsed.add(n);
+      rebuild(); highlight(null);
+    }
 
     // selection overlay and the walk trail
-    const selLines = lineObj([], 0xffffff, 1);
-    const trail = lineObj([], 0xf0c36a, 0.95);
+    const selLines = lineObj(0xffffff, 1);
+    const trail = lineObj(0xf0c36a, 0.95);
     const pulse = new T.Mesh(new T.SphereGeometry(9, 16, 12), new T.MeshBasicMaterial({ color: 0xf0c36a }));
     pulse.visible = false; scene.add(pulse);
     const glow = new T.Mesh(new T.SphereGeometry(1, 16, 12), new T.MeshBasicMaterial({ color: 0xf0c36a, transparent: true, opacity: 0.35 }));
@@ -122,6 +160,10 @@
     // labels: plane names, areas, what runs, the selection and the walk's current step
     const lbl = document.createElement("div"); lbl.className = "p3-labels"; host.appendChild(lbl);
     const cap = document.createElement("div"); cap.className = "p3-cap panel"; cap.hidden = true; host.appendChild(cap);
+    const tools = document.createElement("div"); tools.className = "p3-tools panel";
+    tools.innerHTML = `<span>Fold</span><button data-fold="area">to areas</button><button data-fold="file">to files</button><button data-fold="">open all</button>`;
+    host.appendChild(tools);
+    tools.addEventListener("click", (e) => { const b = e.target.closest("[data-fold]"); if (b) collapseTo(b.dataset.fold); });
     const proj = new T.Vector3();
     function labels() {
       const w = host.clientWidth, h = host.clientHeight, out = [];
@@ -131,9 +173,10 @@
         out.push(`<span class="${cls}" style="left:${((proj.x + 1) / 2 * w).toFixed(1)}px;top:${((1 - proj.y) / 2 * h).toFixed(1)}px${color ? ";color:" + color : ""}">${esc(text)}</span>`);
       };
       for (const p of planeLabels) put(p.v, p.name, "pl");
-      for (const n of all) if (n.t === "area" || n.t === "rt") put(pos.get(n), n.t === "rt" ? n.name : n.name.toUpperCase(), n.t === "rt" ? "rt" : "ar", n.t === "rt" ? "#f4efe2" : colorOf(n));
-      if (S.sel && pos.get(S.sel)) put(pos.get(S.sel), label(S.sel), "se");
-      if (hover && hover !== S.sel) put(pos.get(hover), label(hover), "ho");
+      for (const n of all) if ((n.t === "area" && rep(n) === n) || n.t === "rt") put(pos.get(n), n.t === "rt" ? n.name : n.name.toUpperCase(), n.t === "rt" ? "rt" : "ar", n.t === "rt" ? "#f4efe2" : colorOf(n));
+      const folded = (n) => collapsed.has(n) ? ` · ${n.nFiles > 1 ? n.nFiles + " files, " : ""}${n.nFns} fn folded` : "";
+      if (S.sel && posOf(S.sel)) put(posOf(S.sel), label(rep(S.sel)) + folded(rep(S.sel)), "se");
+      if (hover && hover !== S.sel) put(pos.get(hover), label(hover) + folded(hover) + (collapsed.has(hover) ? " · double-click to open" : hover.kids && hover.kids.length ? " · double-click to fold" : ""), "ho");
       lbl.innerHTML = out.join("");
     }
 
@@ -159,7 +202,7 @@
       if (n && n.t === "rt") { select(null); showRuntime(n); return; }
       select(n || null);
     });
-    renderer.domElement.addEventListener("dblclick", (e) => { const n = pick(e); if (n) fly(pos.get(n)); });
+    renderer.domElement.addEventListener("dblclick", (e) => { const n = pick(e); if (n) toggle(n); });
     function showRuntime(r) {
       const lines = [];
       for (const f of r.files) seg(lines, pos.get(r), pos.get(f));
@@ -167,15 +210,16 @@
       cap.hidden = false;
       cap.innerHTML = `<b>${esc(r.name)}</b> <span>${esc(r.rt.kind)}${r.rt.ports.length ? " · ports " + esc(r.rt.ports.join(", ")) : ""}</span>${r.rt.cmd ? `<code>${esc(r.rt.cmd)}</code>` : ""}`;
     }
-    function setSel(arr) { selLines.geometry.dispose(); selLines.geometry = new T.BufferGeometry(); selLines.geometry.setAttribute("position", new T.Float32BufferAttribute(arr, 3)); need = true; }
+    function setSel(arr) { setLines(selLines, arr); need = true; }
     function highlight(n) {
       const arr = [];
       if (n) {
         const r = A.relatives(n);
-        for (const [t] of r.out) { const a = pos.get(n.t === "sym" ? n : n), b = pos.get(t); if (a && b) arc(a, b, 16, arr); }
-        for (const [t] of r.inn) { const a = pos.get(t), b = pos.get(n); if (a && b) arc(a, b, 16, arr); }
-        const p = pos.get(n);
-        if (p) { glow.position.copy(p); const s = (SZ[n.t] || 4) * 2.6; glow.scale.set(s, s, s); glow.visible = true; }
+        const done = new Set(), me = rep(n);
+        for (const [t] of r.out) { const b = rep(t); if (b === me || done.has("o" + b.id)) continue; done.add("o" + b.id); const pa = posOf(n), pb = pos.get(b); if (pa && pb) arc(pa, pb, 16, arr); }
+        for (const [t] of r.inn) { const a = rep(t); if (a === me || done.has("i" + a.id)) continue; done.add("i" + a.id); const pa = pos.get(a), pb = posOf(n); if (pa && pb) arc(pa, pb, 16, arr); }
+        const p = posOf(n);
+        if (p) { glow.position.copy(p); const s = (SCALE.get(me) || SZ[n.t] || 4) * 2.6; glow.scale.set(s, s, s); glow.visible = true; }
       } else glow.visible = false;
       setSel(arr);
       selLines.material.color.set(0xffffff);
@@ -216,15 +260,15 @@
       const p = playing, item = p.seq[p.i];
       if (!item) { pulse.visible = false; cap.innerHTML += ` <span class="done">done · click anywhere to stop</span>`; playing = null; return; }
       const [a, b, st] = item, t = Math.min(1, (now - p.t0) / p.per);
-      const pa = pos.get(a), pb = pos.get(b), mid = pa.clone().add(pb).multiplyScalar(0.5);
-      if (a.t === "sym" && b.t === "sym") mid.y -= 40 + pa.distanceTo(pb) * 0.28; else mid.y = (pa.y + pb.y) / 2;
+      const pa = posOf(a), pb = posOf(b), mid = pa.clone().add(pb).multiplyScalar(0.5);
+      if (Math.abs(pa.y - pb.y) < 1) mid.y -= 40 + pa.distanceTo(pb) * 0.28; else mid.y = (pa.y + pb.y) / 2;
       const c = new T.QuadraticBezierCurve3(pa, mid, pb);
       pulse.visible = true; pulse.position.copy(c.getPoint(t));
       if (t >= 1) {
         const pts = c.getPoints(16), arr = trail.geometry.attributes.position.array;
         for (let i = 0; i < 16; i++) { arr.set([pts[i].x, pts[i].y, pts[i].z, pts[i + 1].x, pts[i + 1].y, pts[i + 1].z], (p.drawn + i) * 6); }
         p.drawn += 16; trail.geometry.attributes.position.needsUpdate = true; trail.geometry.setDrawRange(0, p.drawn * 2);
-        glow.position.copy(pb); const s = (SZ[b.t] || 4) * 3; glow.scale.set(s, s, s); glow.visible = true;
+        glow.position.copy(pb); const s = (SCALE.get(rep(b)) || SZ[b.t] || 4) * 3; glow.scale.set(s, s, s); glow.visible = true;
         cap.innerHTML = `<b>${p.i + 1} / ${p.seq.length}</b> ${esc(label(b))} <span>${esc(b.path ? b.path + (b.line ? ":" + b.line : "") : "")}</span>${b.slow && b.slow.length ? ` <em>${esc(b.slow.join(", "))}</em>` : ""}`;
         p.i++; p.t0 = now;
       }
@@ -247,13 +291,20 @@
       requestAnimationFrame(loop);
     }
     requestAnimationFrame(loop);
-    three = { size, highlight, fly, play, pos };
+    rebuild();
+    three = { size, highlight, fly, play, pos, toggle, collapsed, posOf };
   }
 
+  A.side.unshift((n) => {
+    if (S.view !== "planes" || !three || !n || !n.kids || !n.kids.length || n.t === "root") return "";
+    const c = three.collapsed.has(n);
+    return `<div class="acts small"><button class="cta ghost" data-fold3d="${esc(n.id)}">${c ? "Open in 3D" : "Fold in 3D"}</button></div>`;
+  });
+  document.addEventListener("click", (e) => { const b = e.target.closest("[data-fold3d]"); if (b && three) three.toggle(N.get(b.dataset.fold3d)); });
   VIEWS.planes = {
     show() { if (!three) build(); three.size(); three.highlight(S.sel); },
     hide() {},
-    sel(n) { if (!three) return; three.highlight(n); if (n && three.pos.get(n)) three.fly(three.pos.get(n)); },
+    sel(n) { if (!three) return; three.highlight(n); if (n && three.posOf(n)) three.fly(three.posOf(n)); },
     play(steps) { if (!three) build(); three.size(); three.play(steps); },
   };
 })();

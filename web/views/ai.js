@@ -98,7 +98,7 @@
   });
 
   // what the side panel shows for a node: its note, and the buttons
-  A.sideExtras = (n) => {
+  A.side.push((n) => {
     if (!n || n === ROOT || (n.t !== "sym" && n.t !== "file")) return "";
     const note = notes.get(n.id);
     let h = "";
@@ -106,6 +106,6 @@
     h += `<div class="acts small">${n.t === "sym" && (A.callOut.get(n) || []).length ? `<button class="cta ghost" data-walk-from="${esc(n.id)}">Walk from here</button>` : ""}` +
       `<button class="cta ghost" data-ai-prompt="${esc(n.id)}">Copy AI prompt</button><button class="cta ghost" data-ai-paste>Paste answer</button></div>`;
     return h;
-  };
+  });
   A.noteFor = (n) => notes.get(n.id);
 })();
