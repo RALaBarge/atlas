@@ -45,12 +45,16 @@
       if (n.t === "area") pos.set(n, P(a, R0 * 0.32, LEVEL.area));
       else if (n.t === "comp") pos.set(n, P(a, R0 * 0.62, LEVEL.comp));
       else if (n.t === "file") {
-        const sib = n.parent.kids.filter((k) => k.t === "file"), i = sib.indexOf(n);
-        pos.set(n, P(a, R0 * (0.42 + 0.5 * (sib.length > 1 ? (i % 6) / 5 : 0.5)), LEVEL.file));
+        // files fill their area's wedge as a grid, in path order: columns across the wedge, rows outward
+        const sib = n.parent.kids.filter((k) => k.t === "file"), i = sib.indexOf(n), w = lay.get(n.parent);
+        const span = w ? w.a1 - w.a0 : 0.1, arcLen = span * R0 * 0.7, cols = Math.max(1, Math.min(sib.length, Math.floor(arcLen / 34)));
+        const rows = Math.ceil(sib.length / cols), row = Math.floor(i / cols), colI = i % cols;
+        const aa = w ? w.a0 + span * (colI + 0.5) / cols : a;
+        pos.set(n, P(aa, R0 * (0.4 + 0.55 * (rows > 1 ? row / (rows - 1) : 0.5)), LEVEL.file));
       } else if (n.t === "sym") {
         let f = n; while (f && f.t !== "file") f = f.parent;
         const frac = f && f.lines ? (n.line - 1) / Math.max(1, f.lines) : 0.5;
-        pos.set(n, P(a, R0 * (0.22 + 0.78 * frac), LEVEL.sym));
+        pos.set(n, P(a, R0 * (0.22 + 0.78 * frac), LEVEL.sym));     // angle: its own slot in the circle, so a file's functions fan out
       }
     }
     const rts = [];

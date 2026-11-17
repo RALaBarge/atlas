@@ -702,6 +702,18 @@ document.addEventListener("click", (e) => {
   if (v) setView(v.dataset.view);
 });
 $("#sideClose").addEventListener("click", () => { select(null); });
+function zoomBy(f) {           // zoom about the middle of the free area, animated like everything else
+  const r = viewRect(), sx = r.x + r.w / 2, sy = r.y + r.h / 2, [wx, wy] = toWorld(sx, sy);
+  const k = Math.max(0.05, Math.min(40, cam.k * f));
+  animateTo(target, { x: wx - (sx - W / 2) / k, y: wy - (sy - H / 2) / k, k }, 260);
+}
+$("#zoombar").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-zoom]"); if (!b) return;
+  const z = b.dataset.zoom;
+  if (z === "in") zoomBy(1.5); else if (z === "out") zoomBy(1 / 1.5);
+  else if (z === "fit") animateTo(target, fitCam(), 400);
+  else if (z === "up" && S.focus.parent) setFocus(S.focus.parent);
+});
 
 // ---------- pointer: hover, click, drag to pan, wheel and pinch to zoom
 const tip = $("#tip");
@@ -767,6 +779,8 @@ addEventListener("keydown", (e) => {
   if (e.key === "Escape") { if (S.sel) select(null); else if (S.focus.parent) setFocus(S.focus.parent); }
   if (e.key === "Backspace" && S.focus.parent) { e.preventDefault(); setFocus(S.focus.parent); }
   if (e.key === "0" || e.key === "f") animateTo(target, fitCam(), 400);
+  if (e.key === "+" || e.key === "=") zoomBy(1.5);
+  if (e.key === "-" || e.key === "_") zoomBy(1 / 1.5);
   if (e.key === "/") { e.preventDefault(); $("#q").focus(); }
 });
 addEventListener("resize", () => { resize(); });

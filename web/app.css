@@ -126,7 +126,7 @@ body[data-view=planes] #planes { display: block; }
 body[data-view=start] #page, body[data-view=walk] #page { display: block; }
 body:not([data-view=radial]):not([data-view=sunburst]) #map,
 body:not([data-view=radial]):not([data-view=sunburst]) #crumbs,
-body:not([data-view=radial]):not([data-view=sunburst]) #legend { display: none !important; }
+body:not([data-view=radial]):not([data-view=sunburst]) #zoombar { display: none !important; }
 .chip.warn { color: #e6a35a; border-color: #e6a35a66; }
 .views { flex-wrap: wrap; }
 
@@ -317,3 +317,12 @@ body.side-open #page { padding-right: calc(var(--side-w, min(620px, 46vw)) + 28p
 .p3-tools button:hover { border-color: var(--accent); color: var(--accent); }
 .p3-labels .co { font: 600 11.5px var(--mono); border: 1px dashed currentColor; transform: translate(-50%, 60%); }
 .p3-labels .co.sub { font-size: 10.5px; font-weight: 500; transform: translate(-50%, 90%); }
+
+#zoombar { right: max(12px, env(safe-area-inset-right, 0px)); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); padding: 4px; display: flex; gap: 4px; z-index: 2; }
+#zoombar button { all: unset; cursor: pointer; min-width: 34px; height: 32px; padding: 0 8px; box-sizing: border-box; display: grid; place-items: center;
+  border: 1px solid var(--line); border-radius: 5px; font: 600 15px var(--sans); color: var(--fg); }
+#zoombar button[data-zoom=fit], #zoombar button[data-zoom=up] { font-size: 12px; }
+#zoombar button:hover { border-color: var(--accent); color: var(--accent); }
+#zoombar button:focus-visible { outline: 2px solid var(--accent); }
+body.side-open #zoombar { right: calc(var(--side-w, min(620px, 46vw)) + 24px); }
+@media (max-width: 760px) { body.side-open #zoombar { display: none; } }
