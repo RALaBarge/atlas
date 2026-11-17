@@ -4,6 +4,8 @@ Point it at a repository, get one HTML file that maps the code: a circle of area
 calls between them, rings sized by lines of code, and the source one click away. The file works offline and is
 the same for anyone who builds the same commit.
 
+![The Circle: beigebox's areas, files and functions with the calls between them](docs/screenshots/circle.png)
+
     python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
     .venv/bin/python -m atlas PATH -o atlas.html
 
@@ -32,6 +34,17 @@ Views:
   count or by flow (how many front doors pass through).
 - **Rings**, **Tree**, **3D** (one plane per level; play a walk through it), **City** (a treemap) and **Seal**
   (test coverage read from the calls: what a test exercises, which tests reach a function).
+
+Screenshots (all of [beigebox](https://github.com/RALaBarge/beigebox), built with no AI):
+
+| | |
+|---|---|
+| ![Start](docs/screenshots/start.png) **Start**: the command-to-code chain | ![Trace](docs/screenshots/trace.png) **Trace**: a path, caller and callee code side by side |
+| ![Trace from text](docs/screenshots/trace-text.png) **Trace** from pasted text (`Dialing up`) | ![Circle with a selection](docs/screenshots/circle-selected.png) **Circle**: a function's calls (gold out, blue in) |
+| ![Circle folded](docs/screenshots/circle-folded.png) **Circle** with tests, scripts and evals folded | ![Rings](docs/screenshots/rings.png) **Rings**: sized by lines of code |
+| ![Tree](docs/screenshots/tree.png) **Tree** with a selection | ![3D](docs/screenshots/3d.png) **3D**: one plane per level |
+| ![City](docs/screenshots/city.png) **City**: sized by flow, selection lit | ![Seal](docs/screenshots/seal.png) **Seal**: 17% of functions reached by a test |
+| ![Seal with a test](docs/screenshots/seal-test.png) **Seal**: what one test exercises | |
 
 Whatever you select stays selected across views and is named in the top bar.
 
