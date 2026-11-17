@@ -4,20 +4,75 @@
   const { G, N, ROOT, colorOf, label, esc, $, VIEWS, select, setView } = A;
   const page = $("#page");
   const KIND = { network: "the network", sleep: "timers (waits or retries)", subprocess: "other programs", database: "a database" };
+  // When you turn the key: the command, what it starts (service, image, its CMD), the file that runs, and then the
+  // functions in order: the program's main, the subcommand the CMD names, and a server it hands the app to by name.
+  const fnode = (path) => N.get("f:" + path);
+  function keyChain(p) {
+    const out = [], path = p.file.path;
+    const callsMain = (f) => f === path || (A.outs.get(fnode(f)) || []).some(([t]) => A.fileOf(t) === p.file);
+    const rts = (G.runtime || []).filter((r) => r.files.some(callsMain));
+    const svc = rts.find((r) => r.kind === "service") || rts[0];
+    let cmd = "";
+    if (svc) {
+      const runIt = (G.run || []).find((r) => r.from === svc.files[0]);
+      if (runIt) out.push({ t: "cmd", text: runIt.cmd, sub: "you type", file: svc.files[0] });
+      else if (svc.id.startsWith("unit:")) out.push({ t: "cmd", text: "systemctl start " + svc.name, sub: "or it starts at boot", file: svc.files[0] });
+      if (svc.id.startsWith("unit:")) out.push({ t: "svc", text: svc.name, sub: svc.cmd ? "runs " + svc.cmd : svc.what, file: svc.files[0] });
+      else if (svc.kind === "service") {
+        out.push({ t: "svc", text: "service " + svc.name, sub: (svc.depends && svc.depends.length ? "starts " + svc.depends.join(", ") + " first" : "") + (svc.ports.length ? (svc.depends && svc.depends.length ? ", " : "") + "port " + svc.ports.join(", ") : ""), file: svc.files[0] });
+        const df = svc.files.find((f) => /Dockerfile/.test(f));
+        if (df) out.push({ t: "img", text: "builds " + df, sub: svc.cmd ? "which runs " + svc.cmd : "", file: df });
+      } else out.push({ t: "svc", text: svc.name, sub: svc.cmd ? "runs " + svc.cmd : svc.what, file: svc.files[0] });
+      cmd = svc.cmd || "";
+      const runner = svc.files.find((f) => f !== path && callsMain(f) && fnode(f) && fnode(f).t === "file" && !/Dockerfile|\.ya?ml$|\.service$/.test(f));
+      if (runner) out.push({ t: "file", text: runner, sub: "the file that runs", n: fnode(runner) });
+    } else {
+      const how = (G.run || []).find((r) => (r.entry && r.entry.file === path) || (r.files || []).includes(path));
+      if (how) { out.push({ t: "cmd", text: how.cmd, sub: how.what || "you type", file: how.from }); cmd = how.runs || how.cmd; }
+    }
+    out.push({ t: "fn", n: p.n, sub: "where the program starts" });
+    // the subcommand the command names: "python -m pkg dial" -> cmd_dial / dial / do_dial ...
+    let last = p.n;
+    const lead = cmd.match(/^.*?\s-m\s+[\w.]+\s*/) || cmd.match(/^\s*\S*(?:python3?|node|bun|deno|ruby)\s+(?:-\S+\s+)*[^-\s]\S*\s*/);
+    const words = lead ? cmd.slice(lead[0].length).split(/\s+/).filter((w) => /^[a-z][\w-]*$/i.test(w)) : [];
+    if (words.length) {
+      const w = words[0].replace(/-/g, "_"), names = [w, "cmd_" + w, "do_" + w, "handle_" + w, "run_" + w, w + "_command", "cmd" + w[0].toUpperCase() + w.slice(1), "_" + w];
+      const pool = [...N.values()].filter((n) => n.t === "sym" && (n.kind === "function" || n.kind === "method") && !n.test && names.includes(n.name));
+      const pick = pool.find((n) => A.fileOf(n) === p.file) || pool.find((n) => A.areaOf(n) === A.areaOf(p.n)) || pool[0];
+      if (pick) { out.push({ t: "fn", n: pick, sub: "the subcommand “" + words[0] + "”" }); last = pick; }
+    }
+    // a server it hands the app to by name ("pkg.mod:app"), up to two hops
+    for (let hop = 0; hop < 2; hop++) {
+      const h = (G.handoffs || []).find((x) => N.get("s:" + x[0]) === last);
+      if (!h) break;
+      const to = N.get("s:" + h[1]) || fnode(h[1]);
+      if (!to || to === last) break;
+      out.push({ t: "fn", n: to, sub: "the server loads “" + h[3] + "” and runs this first" });
+      last = to;
+    }
+    return { steps: out, last };
+  }
+  function firstCalls(n, k = 7) {
+    return [...(A.outs.get(n) || [])].filter(([t]) => !t.test && t.t === "sym").sort((a, b) => a[1] - b[1]).filter((x, i, a) => a.findIndex((y) => y[0] === x[0]) === i).slice(0, k);
+  }
   function html() {
     const rd = G.readme || {}, p = A.primary;
     const first = (rd.lead || "").split(/(?<=\.)\s/).slice(0, 2).join(" ");
     let h = `<div class="pg intro"><section class="hero"><p class="eyebrow">Start</p><h1>${esc(rd.title || G.name)}</h1>${first ? `<p class="lead">${esc(first)}</p>` : ""}` +
       `<p class="facts">${A.programs.filter((d) => !d.tooling).length} programs · ${A.requests.length} HTTP routes · ${ROOT.nFns.toLocaleString()} functions${G.rev ? " · commit " + esc(G.rev) : ""} · read from the code, not run</p></section>`;
     h += `<section><h2>How to read it</h2><p class="sub">Don't read everything. Find what starts, follow it to where the work happens, and note where it leaves the program.</p><ol class="steps-read">`;
-    // 1. what starts
+    // 1. turn the key
     if (p) {
-      const how = (G.run || []).find((r) => (r.entry && r.entry.file === p.file.path) || (r.files || []).includes(p.file.path));
-      const svc = (G.runtime || []).find((r) => r.files.includes(p.file.path));
-      h += `<li><h3>What starts</h3><p><b>${esc(p.name)}</b> in <code>${esc(A.where(p.n))}</code>${how ? `, started by <code>${esc(how.cmd)}</code>` : svc ? `, started by the service <b>${esc(svc.name)}</b>` : ""}. ` +
-        `${A.programs.filter((d) => !d.tooling).length > 1 ? `There are ${A.programs.filter((d) => !d.tooling).length - 1} other programs; this one reaches the most code.` : ""}</p>` +
-        `<button class="cta" data-trace="${esc(p.n.id)}">Trace it →</button></li>`;
-    } else h += `<li><h3>What starts</h3><p>No program found (no <code>main</code>, scripts or services). This looks like a library: start from its most used functions in the Circle.</p></li>`;
+      const { steps, last } = keyChain(p);
+      const others = A.programs.filter((d) => !d.tooling).length - 1;
+      h += `<li><h3>When you turn the key</h3><p>What runs, in order, from the command to the code.${others > 0 ? ` (${others} other program${others === 1 ? "" : "s"}; this one reaches the most code.)` : ""}</p><ol class="key-chain">` +
+        steps.map((s) => s.n ? `<li class="kc-${s.t}"><button data-go="${esc(s.n.id)}">${esc(s.n.t === "file" ? s.text : label(s.n))}</button><span>${esc(s.sub)}${s.n.t === "sym" ? " · " + esc(A.where(s.n)) : ""}</span></li>`
+          : `<li class="kc-${s.t}"><code data-go="${esc("f:" + s.file)}">${esc(s.text)}</code><span>${esc(s.sub)}</span></li>`).join("") + `</ol>`;
+      const fc = firstCalls(last);
+      if (fc.length) h += `<p class="kc-then">Then <b>${esc(label(last))}</b> calls, in order:</p><ol class="key-calls">${fc.map(([t, ln]) =>
+        `<li><button data-go="${esc(t.id)}">${esc(label(t))}</button><span>line ${ln} · ${esc(A.where(t))}</span></li>`).join("")}</ol>`;
+      h += `<div class="acts"><button class="cta" data-trace="${esc(last.id)}">Trace from ${esc(label(last))} →</button>${last !== p.n ? `<button class="cta ghost" data-trace="${esc(p.n.id)}">Trace from ${esc(label(p.n))}</button>` : ""}</div></li>`;
+    } else h += `<li><h3>When you turn the key</h3><p>No program found (no <code>main</code>, scripts or services). This looks like a library: start from its most used functions in the Circle.</p></li>`;
     // 2. where the work happens: the deepest function on the main path that does real work (most calls out, longest)
     if (p) {
       const st = A.trace(p.n).filter((s) => !s.again && s.depth > 0 && (s.n.kind === "function" || s.n.kind === "method"));

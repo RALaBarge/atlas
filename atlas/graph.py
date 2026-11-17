@@ -292,6 +292,8 @@ def build(files):
             if k not in box or c["line"] < box[k]:
                 box[k] = c["line"]
 
+    handoffs = find_handoffs(files, by_file, mods, top, calls)
+
     # files, areas, tests
     out_files = []
     for p in sorted(files):
@@ -361,7 +363,45 @@ def build(files):
                                    and not (s["name"][:1].isupper() and files[s["file"]]["lang"] == "go"),
                          "slow": slow_kinds(raw_by_sym.get(s["id"], []))})
     return {"files": out_files, "symbols": out_syms, "calls": [[a, b, calls[(a, b)]] for a, b in out_calls],
-            "filecalls": [[a, b, fcalls[(a, b)]] for a, b in sorted(fcalls)], "entries": entries}
+            "filecalls": [[a, b, fcalls[(a, b)]] for a, b in sorted(fcalls)], "entries": entries, "handoffs": handoffs}
+
+HANDOFF = re.compile(r"""["']((?:[A-Za-z_]\w*\.)*[A-Za-z_]\w*):([A-Za-z_]\w*)(?:\(\))?["']""")
+STARTUP = ("lifespan", "startup", "on_startup", "startup_event", "create_app", "make_app", "init_app")
+
+def find_handoffs(files, by_file, mods, top, calls):
+    """A function that hands the program to a server by name ("pkg.mod:app", as uvicorn, gunicorn and
+    hypercorn take it) calls nothing a reader can see. Link it to what that module starts with: the named
+    factory, or the app's startup hook. Adds those links to calls; returns [[from, to, line, text]]."""
+    out = []
+    for p in sorted(files):
+        f = files[p]
+        if f["lang"] != "python" or not f["parsed"]:
+            continue
+        for i, line in enumerate(f["text"].split("\n"), 1):
+            for m in HANDOFF.finditer(line):
+                mod, attr = m.group(1), m.group(2)
+                base = mod.replace(".", "/")
+                tf = next((c for c in (base + ".py", base + "/__init__.py", "src/" + base + ".py") if c in files), None)
+                if not tf:
+                    continue
+                src = [s for s in by_file[p] if s["line"] <= i <= s["end"] and s["kind"] in ("function", "method")]
+                if not src:
+                    continue
+                src = min(src, key=lambda s: s["end"] - s["line"])
+                t = (top.get((tf, attr)) or [None])[0]
+                if t is None:
+                    text = files[tf]["text"]
+                    hook = re.search(r"\blifespan\s*=\s*(\w+)", text) or re.search(r"on_startup\s*=\s*\[\s*(\w+)", text)
+                    names = ([hook.group(1)] if hook else []) + [x for x in STARTUP]
+                    dec = re.search(r"@\w+\.on_event\(\s*[\"']startup[\"']\s*\)\s*\n\s*(?:async\s+)?def\s+(\w+)", text)
+                    if dec:
+                        names.insert(0, dec.group(1))
+                    t = next((top[(tf, n)][0] for n in names if top.get((tf, n))), None)
+                to = t or tf
+                out.append([src["id"], to, i, m.group(0).strip("\"'")])
+                if t and t != src["id"] and (src["id"], t) not in calls:
+                    calls[(src["id"], t)] = i
+    return out
 
 def by_file_ids(by_file, fp):
     return [s["id"] for s in by_file.get(fp, []) if not s["parent"]]

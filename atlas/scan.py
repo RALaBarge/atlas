@@ -6,7 +6,7 @@ the same file gives the same result on any machine.
 import hashlib, json, os, subprocess
 from . import readers
 
-READER_VERSION = "3"
+READER_VERSION = "4"
 CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "atlas", "parse-" + READER_VERSION)
 MAX_BYTES = 1_500_000                     # bigger files are listed but not parsed (generated code, bundles)
 SKIP_DIRS = {".git", "node_modules", "vendor", "third_party", "third-party", "thirdparty", "3rdparty", "deps", "external", "extern",
@@ -44,7 +44,7 @@ def read_text(full):
         data = f.read(MAX_BYTES + 1)
     if b"\0" in data[:8192]:
         return None, data                 # binary
-    return data.decode("utf-8", "replace"), data
+    return data.decode("utf-8", "replace").replace("\r\n", "\n"), data      # Windows line endings read like any other
 
 def scan(root, log=None):
     """Returns {path: {"lang", "lines", "bytes", "sha", "text", "parsed" or None}} and (parsed, cached) counts."""

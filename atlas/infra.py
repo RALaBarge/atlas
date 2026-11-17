@@ -88,7 +88,8 @@ def runtime(files):
                         "files": [p] + program_files(files, cmd), "ports": " ".join(ports).split(), "cmd": cmd})
         elif re.match(r"(docker-)?compose(\.[\w-]+)?\.ya?ml$", base):
             for name, body in compose_services(text):
-                ports = re.findall(r"^\s*-\s*['\"]?([\d.:]+(?:/\w+)?)['\"]?\s*$", body, re.M)
+                pm = re.search(r"^([ \t]*)ports:[ \t]*\n((?:\1[ \t]+.*\n?)*)", body, re.M)
+                ports = re.findall(r"^\s*-\s*['\"]?([^'\"\s]+)['\"]?\s*$", pm.group(2), re.M) if pm else []
                 img = re.search(r"^\s*image:\s*(\S+)", body, re.M)
                 cmdm = re.search(r"^\s*command:\s*(.+)$", body, re.M)
                 dep = []
@@ -99,11 +100,21 @@ def runtime(files):
                     il = re.search(r"^\s*depends_on:\s*\[([^\]]*)\]", body, re.M)
                     if il:
                         dep = [x.strip(" '\"") for x in il.group(1).split(",") if x.strip()]
-                build = re.search(r"^\s*build:\s*(\S+)", body, re.M)
+                build = re.search(r"^[ \t]*build:[ \t]*(\S+)", body, re.M)
                 svc_files = [p]
+                ctx, dfile = None, "Dockerfile"
                 if build and build.group(1) not in ("|", ">"):
-                    d = posixpath.normpath(posixpath.join(posixpath.dirname(p), build.group(1)))
-                    df = posixpath.join("" if d == "." else d, "Dockerfile")
+                    ctx = build.group(1)
+                else:
+                    bm = re.search(r"^([ \t]*)build:[ \t]*\n((?:\1[ \t]+.*\n?)*)", body, re.M)     # build: {context, dockerfile}
+                    if bm:
+                        cm = re.search(r"^\s*context:\s*['\"]?([^'\"\s]+)", bm.group(2), re.M)
+                        fm = re.search(r"^\s*dockerfile:\s*['\"]?([^'\"\s]+)", bm.group(2), re.M)
+                        ctx = cm.group(1) if cm else "."
+                        dfile = fm.group(1) if fm else dfile
+                if ctx is not None:
+                    d = posixpath.normpath(posixpath.join(posixpath.dirname(p), ctx))
+                    df = posixpath.normpath(posixpath.join("" if d == "." else d, dfile))
                     if df in files:
                         svc_files.append(df)
                 cmd = cmdm.group(1).strip() if cmdm else ""
@@ -188,6 +199,9 @@ def how_to_run(files):
             add(pre + "cargo test", "run the tests", p)
             for b in d.get("bin") or []:
                 add(pre + "cargo run --bin " + b.get("name", "?"), "run " + b.get("path", ""), p)
+        elif re.match(r"(docker-)?compose(\.[\w-]+)?\.ya?ml$", base):
+            add(pre + "docker compose up" if base in ("compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml")
+                else "docker compose -f " + p + " up", "start the services in " + p, p)
         elif base == "go.mod":
             add(pre + "go build ./...", "build", p)
             add(pre + "go test ./...", "run the tests", p)

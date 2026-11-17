@@ -527,3 +527,27 @@ body.side-open #maps { padding-right: calc(var(--side-w, min(620px, 46vw)) + 28p
 #zoombar button[aria-pressed=true] { background: var(--accent); color: var(--ink); border-color: var(--accent); }
 #zoombar .zopen { display: none; } #zoombar.folded .zopen { display: grid; }
 body[data-view=sunburst] #zoombar .zsep, body[data-view=sunburst] #zoombar .zl, body[data-view=sunburst] #zoombar [data-zoom=count], body[data-view=sunburst] #zoombar [data-zoom=flow], body[data-view=sunburst] #zoombar .zopen { display: none; }
+/* Start: when you turn the key */
+.key-chain, .key-calls { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-direction: column; }
+.key-chain > li { position: relative; padding: 0 0 14px 22px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.key-chain > li::before { content: ""; position: absolute; left: 5px; top: 7px; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
+.key-chain > li:not(:last-child)::after { content: ""; position: absolute; left: 9px; top: 18px; bottom: 0; width: 1px; background: var(--line-hi); }
+.key-chain > li.kc-cmd::before, .key-chain > li.kc-svc::before, .key-chain > li.kc-img::before { background: transparent; border: 1.5px solid var(--mut); width: 7px; height: 7px; }
+.key-chain > li:last-child { padding-bottom: 0; }
+.key-chain code { cursor: pointer; background: rgba(255,255,255,.05); padding: 2px 6px; border-radius: 4px; }
+.key-chain button, .key-calls button { all: unset; cursor: pointer; font: 600 13px var(--mono); color: var(--accent); }
+.key-chain button:hover, .key-calls button:hover, .key-chain code:hover { text-decoration: underline; }
+.key-chain span, .key-calls span { font-size: 12px; color: var(--mut); min-width: 0; overflow-wrap: anywhere; }
+.kc-then { margin-top: 4px !important; }
+.key-calls { counter-reset: kc; gap: 4px; padding-left: 22px; }
+.key-calls > li { counter-increment: kc; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.key-calls > li::before { content: counter(kc) "."; font: 12px var(--mono); color: var(--mut); width: 1.6em; }
+/* top bar: the current target */
+#repoMeta.tgt { display: flex; align-items: center; gap: 4px; min-width: 0; max-width: 42vw; }
+#repoMeta .tgt-go { all: unset; cursor: pointer; display: flex; align-items: baseline; gap: 6px; min-width: 0; overflow: hidden; }
+#repoMeta .tgt-go i { flex: none; width: 8px; height: 8px; border-radius: 50%; align-self: center; }
+#repoMeta .tgt-go b { font: 600 12px var(--mono); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#repoMeta .tgt-go small { font: 11px var(--mono); color: var(--mut); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+#repoMeta .tgt-go:hover b { color: var(--accent); }
+#repoMeta .tgt-x { all: unset; cursor: pointer; flex: none; color: var(--mut); font-size: 14px; line-height: 1; padding: 0 4px; }
+#repoMeta .tgt-x:hover { color: var(--fg); }

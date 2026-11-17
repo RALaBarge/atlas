@@ -78,7 +78,21 @@ const pathOf = (n) => { const p = []; for (let x = n; x; x = x.parent) p.unshift
 const label = (n) => (n.t === "sym" && n.cls && n.parent.t !== "sym" ? n.cls + "." + n.name : n.name);
 
 $("#repoName").textContent = G.name || "repo";
-$("#repoMeta").textContent = `${G.files.length.toLocaleString()} files · ${ROOT.nFns.toLocaleString()} functions · ${CALLS.length.toLocaleString()} calls`;
+const STATS = `${G.files.length.toLocaleString()} files · ${ROOT.nFns.toLocaleString()} functions · ${CALLS.length.toLocaleString()} calls`;
+$("#repoMeta").textContent = STATS;
+// the top bar names the current target: whatever is selected, in any view
+function showTarget(n) {
+  const m = $("#repoMeta");
+  m.title = STATS;
+  if (!n || n === ROOT) { m.className = ""; m.textContent = STATS; return; }
+  const where = n.t === "sym" ? n.path + ":" + n.line : n.t === "file" ? n.path : n.t === "area" ? "area" : n.t === "comp" ? "part of " + n.area : "";
+  m.className = "tgt";
+  m.innerHTML = `<button class="tgt-go" title="Show it"><i style="background:${colorOf(n)}"></i><b>${esc(label(n))}</b><small>${esc(where)}</small></button><button class="tgt-x" aria-label="Clear the target" title="Clear (Esc)">×</button>`;
+}
+$("#repoMeta").addEventListener("click", (e) => {
+  if (e.target.closest(".tgt-x")) { select(null); return; }
+  if (e.target.closest(".tgt-go") && S.sel) { const n = S.sel; if (S.view === "start") go(n.id); else { select(n, { fly: true, reveal: true }); } }
+});
 document.title = (G.name || "repo") + " · atlas";
 
 // ---------- state
@@ -689,6 +703,7 @@ function setView(v, quiet) {
 }
 function select(n, opts = {}) {
   S.sel = n;
+  showTarget(n);
   rel = n ? relatives(n) : null;
   if (rel) {
     rel.keep = new Set([...rel.out.keys(), ...rel.inn.keys()]);
