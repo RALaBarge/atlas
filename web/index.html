@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{TITLE}}</title>
+<style>
+/*{{CSS}}*/
+</style>
+</head>
+<body>
+<canvas id="map" aria-label="Map of the repository"></canvas>
+<div id="tip" hidden></div>
+
+<header id="bar" class="panel">
+  <div class="brand"><b id="repoName"></b><span id="repoMeta"></span></div>
+  <div class="search">
+    <input id="q" type="search" placeholder="Find a file or function" autocomplete="off" spellcheck="false" aria-label="Find a file or function">
+    <div id="results" role="listbox" hidden></div>
+  </div>
+  <nav class="views" aria-label="View">
+    <button data-view="radial" aria-pressed="true">Circle</button>
+    <button data-view="sunburst" aria-pressed="false">Rings</button>
+  </nav>
+</header>
+
+<aside id="side" class="panel" hidden>
+  <div class="side-head">
+    <div class="trail" id="sideTrail"></div>
+    <button class="x" id="sideClose" aria-label="Close">×</button>
+  </div>
+  <div id="sideBody"></div>
+</aside>
+
+<nav id="crumbs" class="panel" aria-label="Where you are"></nav>
+<div id="legend" class="panel"></div>
+
+<!--{{DATA}}-->
+<script>
+/*{{JS}}*/
+</script>
+</body>
+</html>
