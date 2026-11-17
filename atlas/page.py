@@ -8,7 +8,7 @@ import base64, gzip, json, os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEB = os.path.join(os.path.dirname(HERE), "web")
-VERSION = "0.1"
+VERSION = "1.0"
 MAX_SOURCE = 400_000          # bytes per file kept for the code panel
 MODULES = ("tree.js", "start.js", "flow.js", "trace.js", "maps.js", "intro.js", "planes.js", "ai.js")
 
