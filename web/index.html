@@ -13,6 +13,8 @@
 <div id="tree" aria-label="The repository as a tree"><div id="treeWorld"><svg id="treeEdges"></svg><svg id="treeCalls"></svg><div id="treeNodes"></div></div></div>
 <div id="planes" aria-label="The repository in 3D, one plane per level"></div>
 <main id="page"></main>
+<section id="trace" aria-label="Trace: follow the program call by call"></section>
+<section id="maps" aria-label="City and Seal"></section>
 <div id="tip" hidden></div>
 
 <header id="bar" class="panel">
@@ -22,11 +24,14 @@
     <div id="results" role="listbox" hidden></div>
   </div>
   <nav class="views" aria-label="View">
-    <button data-view="start" aria-pressed="false">Start here</button>
+    <button data-view="start" aria-pressed="false">Start</button>
+    <button data-view="trace" aria-pressed="false">Trace</button>
     <button data-view="radial" aria-pressed="true">Circle</button>
     <button data-view="sunburst" aria-pressed="false">Rings</button>
     <button data-view="tree" aria-pressed="false">Tree</button>
     <button data-view="planes" aria-pressed="false">3D</button>
+    <button data-view="city" aria-pressed="false">City</button>
+    <button data-view="seal" aria-pressed="false">Seal</button>
   </nav>
   <button id="keyBtn" class="keybtn" aria-expanded="false" aria-controls="key">Key</button>
 </header>

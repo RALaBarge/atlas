@@ -676,7 +676,7 @@ function select(n, opts = {}) {
     (function w(x) { rel.keep.add(x); for (const kk of x.kids) w(kk); })(n);
   }
   bumpCache();
-  showSide(n).then(() => { if (opts.recenter !== false) dirty = true; });
+  if (!opts.noSide) showSide(n).then(() => { if (opts.recenter !== false) dirty = true; });
   if (!isMap(S.view)) { if (VIEWS[S.view] && VIEWS[S.view].sel) VIEWS[S.view].sel(n, opts); return; }
   if (n && !inFocus(n)) setFocus(n.t === "area" ? n : N.get("a:" + n.area), false);
   else if (n && opts.fly) {

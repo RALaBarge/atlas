@@ -10,7 +10,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 WEB = os.path.join(os.path.dirname(HERE), "web")
 VERSION = "0.1"
 MAX_SOURCE = 400_000          # bytes per file kept for the code panel
-MODULES = ("tree.js", "start.js", "gallery.js", "planes.js", "ai.js")
+MODULES = ("tree.js", "start.js", "flow.js", "trace.js", "maps.js", "intro.js", "planes.js", "ai.js")
 
 def pack(obj):
     raw = json.dumps(obj, separators=(",", ":"), sort_keys=True, ensure_ascii=False).encode("utf-8")
