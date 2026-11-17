@@ -10,6 +10,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 WEB = os.path.join(os.path.dirname(HERE), "web")
 VERSION = "0.1"
 MAX_SOURCE = 400_000          # bytes per file kept for the code panel
+MODULES = ("tree.js", "start.js", "planes.js", "ai.js")
 
 def pack(obj):
     raw = json.dumps(obj, separators=(",", ":"), sort_keys=True, ensure_ascii=False).encode("utf-8")
@@ -33,7 +34,10 @@ def write(g, files, out):
     html = (html.replace("{{TITLE}}", title.replace("<", "&lt;"))
                 .replace("/*{{CSS}}*/", read("app.css"))
                 .replace("<!--{{DATA}}-->", "\n".join(blocks))
-                .replace("/*{{JS}}*/", read("app.js").replace("</script", "<\\/script")))
+                .replace("<!--{{LIBS}}-->", f'<script type="application/json" id="atlas-prompts">{read("prompts.json").replace("</", "<\\/")}</script>\n' + "".join(f'<script type="text/plain" id="lib-{k}">{read("vendor/" + v).replace("</script", "<\\/script")}</script>\n'
+                                                     for k, v in (("three", "three.min.js"), ("orbit", "OrbitControls.js"))))
+                .replace("/*{{JS}}*/", read("app.js").replace("/*{{MODULES}}*/", "\n".join(read("views/" + m) for m in MODULES))
+                                                     .replace("</script", "<\\/script")))
     with open(out, "w", encoding="utf-8") as f:
         f.write(html)
     return len(html.encode("utf-8"))

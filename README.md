@@ -16,7 +16,15 @@ Parsing is cached by file content in `~/.cache/atlas`, so a rebuild only reads f
 | `atlas/graph.py` | resolves calls, places files into areas, tests and test reach, entry points |
 | `atlas/infra.py` | what runs and how to run it: systemd, Docker, compose, package.json, Makefile, pyproject, Cargo, go.mod |
 | `atlas/page.py` | writes the single file: the app plus gzip data blocks (source per area, unpacked on demand) |
-| `web/` | the page: canvas views, code panel, search |
+| `web/app.js` | the core: model, Circle and Rings on a canvas, side panel with code, search, view switching |
+| `web/views/` | Tree, Start here + Walk, 3D planes, AI notes (stitched into the page at build time) |
+| `web/prompts.json` | the AI prompts and the answer format; shared with a future command-line `explain` step |
+| `web/vendor/` | three.js r147 (MIT), stored in the page and loaded only when 3D opens |
+
+Views: **Start here** (what it is, how to run it, front doors, a reading tour, the startup path with slow-looking
+calls flagged), **Walk** (one front door followed call by call), **Circle**, **Rings**, **Tree**, **3D** (one plane
+per level; play a walk through it). AI is optional: "Copy AI prompt" on a function or walk, paste the answer back;
+it is checked (shape, real ids, known tags) and kept per browser.
 
 Calls are found by reading the code. A call through a function value, a dynamic dispatch the reader can't see, or
 another language is missing; an ambiguous call is left out rather than guessed.

@@ -14,6 +14,14 @@ def main(argv=None):
     files, _, _ = scan.scan(root, log)
     g = graph.build(files)
     g["name"] = os.path.basename(root.rstrip("/"))
+    try:
+        import subprocess
+        g["rev"] = subprocess.run(["git", "-C", root, "rev-parse", "--short=12", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+        dirty = subprocess.run(["git", "-C", root, "status", "--porcelain"], capture_output=True, text=True).stdout.strip()
+        if dirty:
+            g["rev"] += "+changes"
+    except Exception:
+        g["rev"] = ""
     g["readme"] = infra.readme_lead(files)
     g["runtime"] = infra.runtime(files)
     g["run"] = infra.how_to_run(files)

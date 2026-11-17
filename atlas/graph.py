@@ -28,6 +28,23 @@ accept shutdown settimeout getsockname json text raise_for_status iter_lines sta
 String Error Close Write Read Lock Unlock Wait Done Add Get Set Len Load Store Do Run Start Stop Scan Next Err Bytes Sprintf
 Printf Println Errorf New Unwrap Is As Trim Split Join HasPrefix HasSuffix Contains Replace""".split())
 
+# Calls that usually make a function slow. Each pattern is matched against "name@receiver" (receiver "None" when there
+# is none). Static hints only: they say where to look, not how long it takes.
+SLOW = {
+    "network": r"(urlopen|create_connection|getaddrinfo|gethostbyname|Dial|DialContext|DialTimeout|ListenAndServe|fetch)@.*|"
+               r"(get|post|put|delete|patch|head|request|Get|Post|Do|Head|urlopen)@(requests|httpx|http|session|client|urllib\.request|aiohttp|axios)|"
+               r"connect@(socket|sock)",
+    "sleep": r"(sleep|Sleep|usleep|nanosleep)@.*|\w*([Rr]etry|[Bb]ackoff)\w*@.*",
+    "subprocess": r"(run|Popen|call|check_call|check_output|system|spawn|spawnSync|execSync|exec|execFile)@(subprocess|os|child_process|cp)|"
+                  r"(Command|CommandContext)@exec|new@::Command|(system|popen|fork|execv|execvp|execve)@None",
+    "database": r"connect@(sqlite3|psycopg|psycopg2|pymysql|mysql|asyncpg|duckdb|pymongo)|(create_engine|MongoClient|Redis|StrictRedis)@.*|"
+                r"Open@sql|(Connect|Ping)@(db|pool|conn)",
+}
+SLOW = {k: re.compile(v) for k, v in SLOW.items()}
+
+def slow_kinds(calls):
+    return sorted({kind for c in calls for kind, rx in SLOW.items() if rx.fullmatch(f"{c['name']}@{c['recv']}")})
+
 TEST_PATH = re.compile(r"(^|/)(tests?|__tests__|spec|testdata|test_?utils?)(/|$)|(^|/)test_[^/]*\.py$|_test\.(py|go)$|"
                        r"\.(test|spec)\.[jt]sx?$|(^|/)src/test/|Tests?\.(java|kt)$|(^|/)conftest\.py$|_tests?\.rs$")
 
@@ -214,7 +231,7 @@ def build(files):
         ids = [i for fp in fs for i in top.get((fp, name), [])]
         return one(ids)
 
-    calls, fcalls = set(), set()
+    calls, fcalls = {}, {}                  # (from, to) -> first line it happens on
     for p in sorted(files):
         f = files[p]
         if not f["parsed"]:
@@ -259,7 +276,7 @@ def build(files):
                 if t is None and "" in imap:
                     t = in_files(imap[""][0], n)
                 scoped = (lambda ids: [i for i in ids if posixpath.dirname(byid[i]["file"]) in seen_go]) if lang == "go" else (lambda ids: ids)
-                if t is None:
+                if t is None and (fam(lang) not in ("python", "js", "bash") or len(n) >= 6):   # short names in dynamic code: too likely a local
                     t = one(scoped(name_any.get((fam(lang), n), [])))
                 if t is None and n[:1].isupper():
                     t = one(scoped(classes.get((fam(lang), n), [])), p, d)
@@ -270,10 +287,10 @@ def build(files):
                 t = one(cand) if len(n) > 2 and n not in COMMON_METHOD else None   # several classes have it, or a library might: no line
             if t is None or (src and t == src["id"]):
                 continue
-            if src:
-                calls.add((src["id"], t))
-            else:
-                fcalls.add((p, t))
+            k = (src["id"], t) if src else (p, t)
+            box = calls if src else fcalls
+            if k not in box or c["line"] < box[k]:
+                box[k] = c["line"]
 
     # files, areas, tests
     out_files = []
@@ -301,6 +318,13 @@ def build(files):
     test_file = {x["id"]: x["test"] for x in out_files}
 
     out_calls = sorted(calls)
+    raw_by_sym = defaultdict(list)
+    for p, f in files.items():
+        if f["parsed"]:
+            mine = by_file[p]
+            for c in f["parsed"]["calls"]:
+                if c["from"] >= 0 and not c.get("ref"):
+                    raw_by_sym[mine[c["from"]]["id"]].append(c)
     cout, cin = defaultdict(list), defaultdict(list)
     for a, b in out_calls:
         cout[a].append(b)
@@ -334,9 +358,10 @@ def build(files):
                          "tested": fn and not t and s["id"] in reach,
                          "unused": fn and not t and not cin.get(s["id"]) and s["id"] not in entry_ids and not decorated
                                    and s["name"] not in ENTRY_NAMES and not s["name"].startswith(("test", "Test", "_"))
-                                   and not (s["name"][:1].isupper() and files[s["file"]]["lang"] == "go")})
-    return {"files": out_files, "symbols": out_syms, "calls": [list(c) for c in out_calls],
-            "filecalls": [list(c) for c in sorted(fcalls)], "entries": entries}
+                                   and not (s["name"][:1].isupper() and files[s["file"]]["lang"] == "go"),
+                         "slow": slow_kinds(raw_by_sym.get(s["id"], []))})
+    return {"files": out_files, "symbols": out_syms, "calls": [[a, b, calls[(a, b)]] for a, b in out_calls],
+            "filecalls": [[a, b, fcalls[(a, b)]] for a, b in sorted(fcalls)], "entries": entries}
 
 def by_file_ids(by_file, fp):
     return [s["id"] for s in by_file.get(fp, []) if not s["parent"]]

@@ -10,6 +10,9 @@
 </head>
 <body>
 <canvas id="map" aria-label="Map of the repository"></canvas>
+<div id="tree" aria-label="The repository as a tree"><div id="treeWorld"><svg id="treeEdges"></svg><svg id="treeCalls"></svg><div id="treeNodes"></div></div></div>
+<div id="planes" aria-label="The repository in 3D, one plane per level"></div>
+<main id="page"></main>
 <div id="tip" hidden></div>
 
 <header id="bar" class="panel">
@@ -19,8 +22,11 @@
     <div id="results" role="listbox" hidden></div>
   </div>
   <nav class="views" aria-label="View">
+    <button data-view="start" aria-pressed="false">Start here</button>
     <button data-view="radial" aria-pressed="true">Circle</button>
     <button data-view="sunburst" aria-pressed="false">Rings</button>
+    <button data-view="tree" aria-pressed="false">Tree</button>
+    <button data-view="planes" aria-pressed="false">3D</button>
   </nav>
 </header>
 
@@ -36,6 +42,7 @@
 <div id="legend" class="panel"></div>
 
 <!--{{DATA}}-->
+<!--{{LIBS}}-->
 <script>
 /*{{JS}}*/
 </script>

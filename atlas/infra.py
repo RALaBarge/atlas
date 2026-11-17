@@ -13,13 +13,14 @@ def readme_lead(files):
             text = files[name]["text"]
             title = ""
             m = re.search(r"^#\s+(.+)$", text, re.M)
-            if m:
-                title = m.group(1).strip()
+            if m and text[:m.start()].count("\n") < 15:               # a title, not a section heading further down
+                title = re.sub(r"[*_`]", "", m.group(1)).strip()
             for para in re.split(r"\n\s*\n", text):
                 p = para.strip()
                 if not p or p.startswith(("#", "!", "[!", "<", "```", "|", "---", "===")) or len(p) < 40:
                     continue
                 p = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", " ".join(p.split()))
+                p = re.sub(r"(\*\*|__|\*|`)(.+?)\1", r"\2", p)          # bold, italics, code: keep the words
                 return {"file": name, "title": title, "lead": p[:600]}
             return {"file": name, "title": title, "lead": ""}
     return None
@@ -109,8 +110,11 @@ def compose_services(text):
 def how_to_run(files):
     """Commands the repo itself names: [{"cmd","what","from"}], in a stable order."""
     out = []
+    seen = set()
     def add(cmd, what, src):
-        out.append({"cmd": cmd, "what": what, "from": src})
+        if cmd not in seen:
+            seen.add(cmd)
+            out.append({"cmd": cmd, "what": what, "from": src})
     for p in sorted(files, key=lambda x: (x.count("/"), x)):
         base, text = posixpath.basename(p), files[p]["text"]
         if p.count("/") > 1:

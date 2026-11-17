@@ -49,7 +49,7 @@ for (const s of G.symbols) {
   const holderId = s.parent && classOf.get(s.file + "#" + s.parent);
   const holder = (holderId && holderId !== "s:" + s.id && N.get(holderId)) || file;
   const n = add({ id: "s:" + s.id, t: "sym", name: s.name, kind: s.kind, path: s.file, line: s.line, end: s.end, sig: s.sig,
-    doc: s.doc, cls: s.parent, area: file.area, test: s.test, tested: s.tested, unused: s.unused, parent: holder });
+    doc: s.doc, cls: s.parent, area: file.area, test: s.test, tested: s.tested, unused: s.unused, slow: s.slow || [], parent: holder });
   holder.kids.push(n);
 }
 for (const n of N.values()) {
@@ -593,10 +593,12 @@ async function showSide(n) {
   if (n.unused) chips.push(`<span class="chip bad">nothing calls this</span>`);
   if (n.t === "sym" && !n.test && (n.kind === "function" || n.kind === "method")) chips.push(n.tested ? `<span class="chip ok">reached by tests</span>` : `<span class="chip">no test reaches it</span>`);
   if (n.t !== "sym" && n.t !== "file") chips.push(`<span class="chip">${n.nFiles} files · ${n.nFns} functions</span>`);
+  for (const k of n.slow || []) chips.push(`<span class="chip warn">${esc({ network: "network", sleep: "sleep / retry", subprocess: "runs a program", database: "database" }[k] || k)}</span>`);
   const r = relatives(n);
   let h = `<div class="info"><h2>${esc(label(n))}</h2><div class="chips">${chips.join("")}</div>`;
   const doc = n.t === "sym" ? n.doc : n.t === "file" ? n.head : n === ROOT && G.readme ? G.readme.lead : "";
   if (doc) h += `<p class="doc">${esc(doc)}</p>`;
+  if (A.sideExtras) h += A.sideExtras(n);
   if (n.t !== "root") h += `<div class="rel">${relList(r.out, "Calls", "out")}${relList(r.inn, "Called by", "in")}</div>`;
   if (n.t !== "file" && n.t !== "sym" && n.kids.length)
     h += `<ul class="kids">${n.kids.map((k) => `<li><button data-go="${esc(k.id)}">${esc(label(k))} <small>${k.t === "file" ? k.lines + "L" : k.nFns + " fn"}</small></button></li>`).join("")}</ul>`;
@@ -645,6 +647,22 @@ function setFocus(n, keepCam) {
   crumbs();
   animateTo(layoutFor(S.view, n), keepCam ? null : fitCam());
 }
+// Views. Circle and Rings draw on the canvas; the others (Start here, Walk, Tree, 3D) are modules that register here.
+const VIEWS = {};                         // name -> { show(), hide(), sel(n), reveal(n) }
+const isMap = (v) => v === "radial" || v === "sunburst";
+function setView(v, quiet) {
+  const was = S.view;
+  if (was === v && !quiet) return;
+  if (!isMap(was) && VIEWS[was]) VIEWS[was].hide();
+  S.view = v;
+  document.body.dataset.view = v;
+  for (const x of document.querySelectorAll("[data-view]")) x.setAttribute("aria-pressed", String(x.dataset.view === v || (v === "walk" && x.dataset.view === "start")));
+  try { history.replaceState(null, "", "#" + v); } catch (_) {}
+  if (isMap(v)) {
+    edgesDirty = true; crumbs(); legend(); resize();
+    animateTo(layoutFor(v, S.focus), fitCam(), isMap(was) ? 800 : 0);
+  } else VIEWS[v].show();
+}
 function select(n, opts = {}) {
   S.sel = n;
   rel = n ? relatives(n) : null;
@@ -655,6 +673,7 @@ function select(n, opts = {}) {
   }
   bumpCache();
   showSide(n).then(() => { if (opts.recenter !== false) dirty = true; });
+  if (!isMap(S.view)) { if (VIEWS[S.view] && VIEWS[S.view].sel) VIEWS[S.view].sel(n, opts); return; }
   if (n && !inFocus(n)) setFocus(n.t === "area" ? n : N.get("a:" + n.area), false);
   else if (n && opts.fly) {
     requestAnimationFrame(() => {
@@ -669,23 +688,19 @@ function select(n, opts = {}) {
 function go(id, fly = true) {
   const n = N.get(id);
   if (!n) return;
-  if ((n.t === "area" || n.t === "comp" || n.t === "root") && n.kids.length) { setFocus(n); select(n, { recenter: false }); return; }
-  select(n, { fly });
+  if (S.view === "start" || S.view === "walk") setView("radial");
+  if (isMap(S.view) && (n.t === "area" || n.t === "comp" || n.t === "root") && n.kids.length) { setFocus(n); select(n, { recenter: false }); return; }
+  select(n, { fly, reveal: true });
 }
 document.addEventListener("click", (e) => {
   const g = e.target.closest("[data-go]");
   if (g) { e.preventDefault(); go(g.dataset.go); return; }
   const f = e.target.closest("[data-focus]");
   if (f) { setFocus(N.get(f.dataset.focus)); return; }
+  const v = e.target.closest("[data-view]");
+  if (v) setView(v.dataset.view);
 });
 $("#sideClose").addEventListener("click", () => { select(null); });
-for (const b of document.querySelectorAll("[data-view]")) b.addEventListener("click", () => {
-  S.view = b.dataset.view;
-  for (const x of document.querySelectorAll("[data-view]")) x.setAttribute("aria-pressed", String(x === b));
-  edgesDirty = true; crumbs(); legend();
-  animateTo(layoutFor(S.view, S.focus), fitCam(), 800);
-  try { history.replaceState(null, "", "#" + S.view); } catch (_) {}
-});
 
 // ---------- pointer: hover, click, drag to pan, wheel and pinch to zoom
 const tip = $("#tip");
@@ -745,7 +760,9 @@ cv.addEventListener("wheel", (e) => {
   zoomAt(e.clientX, e.clientY, Math.exp(-d * (e.ctrlKey ? 0.01 : 0.0015)));
 }, { passive: false });
 addEventListener("keydown", (e) => {
-  if (e.target.closest("input")) return;
+  if (e.target.closest("input, textarea")) return;
+  if (e.key === "/") { e.preventDefault(); $("#q").focus(); return; }
+  if (!isMap(S.view)) { if (e.key === "Escape" && S.sel) select(null); return; }
   if (e.key === "Escape") { if (S.sel) select(null); else if (S.focus.parent) setFocus(S.focus.parent); }
   if (e.key === "Backspace" && S.focus.parent) { e.preventDefault(); setFocus(S.focus.parent); }
   if (e.key === "0" || e.key === "f") animateTo(target, fitCam(), 400);
@@ -793,17 +810,22 @@ function legend() {
     `<span><i class="ln" style="border-color:${C.out}"></i>calls</span><span><i class="ln in" style="border-color:${C.in}"></i>called by</span>`;
 }
 
+// Shared with the view modules below.
+const A = { G, N, S, ROOT, CALLS, callOut, callIn, colorOf, label, pathOf, isAnc, esc, $, relatives, select, go, setView, VIEWS,
+  sourceOf, hl, showSide, unpack, reduced, areaNames, COLOR, C, MONO, SANS, layoutRadial, R, TAU, polar };
+/*{{MODULES}}*/
+
 // ---------- start
 resize();
-const startView = (location.hash || "").slice(1);
-if (startView === "sunburst") { S.view = "sunburst"; for (const x of document.querySelectorAll("[data-view]")) x.setAttribute("aria-pressed", String(x.dataset.view === "sunburst")); }
 crumbs(); legend();
-L = new Map(); target = layoutFor(S.view, ROOT);
+L = new Map(); target = layoutFor("radial", ROOT);
 Object.assign(cam, fitCam());
-animateTo(target, null, reduced ? 0 : 900);
+const startView = (location.hash || "").slice(1);
+setView(VIEWS[startView] || isMap(startView) ? startView : "start", true);
+if (isMap(S.view)) animateTo(layoutFor(S.view, ROOT), null, reduced ? 0 : 900);
 function frame(now) {
   stepTween(now);
-  if (dirty) { dirty = false; draw(); }
+  if (dirty && isMap(S.view)) { dirty = false; draw(); }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
