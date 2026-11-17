@@ -39,6 +39,11 @@ def match_file(files, token):
 
 def program_files(files, cmd):
     out = []
+    for mod in re.findall(r"(?:^|\s)-m\s+([\w.]+)", cmd):          # python -m pkg.mod
+        base = mod.replace(".", "/")
+        for c in (base + "/__main__.py", base + ".py", "src/" + base + "/__main__.py", "src/" + base + ".py"):
+            if c in files and c not in out:
+                out.append(c); break
     for tok in re.split(r"[\s;&|]+", cmd):
         if not tok or tok.startswith("-") or "=" in tok:
             continue
@@ -86,9 +91,33 @@ def runtime(files):
                 ports = re.findall(r"^\s*-\s*['\"]?([\d.:]+(?:/\w+)?)['\"]?\s*$", body, re.M)
                 img = re.search(r"^\s*image:\s*(\S+)", body, re.M)
                 cmdm = re.search(r"^\s*command:\s*(.+)$", body, re.M)
+                dep = []
+                dm = re.search(r"^(\s*)depends_on:\s*\n((?:\1\s+.*\n?)*)", body, re.M)
+                if dm:
+                    dep = re.findall(r"^\s*-\s*['\"]?([\w.-]+)", dm.group(2), re.M) or re.findall(r"^\s+([\w.-]+):\s*$", dm.group(2), re.M)
+                else:
+                    il = re.search(r"^\s*depends_on:\s*\[([^\]]*)\]", body, re.M)
+                    if il:
+                        dep = [x.strip(" '\"") for x in il.group(1).split(",") if x.strip()]
+                build = re.search(r"^\s*build:\s*(\S+)", body, re.M)
+                svc_files = [p]
+                if build and build.group(1) not in ("|", ">"):
+                    d = posixpath.normpath(posixpath.join(posixpath.dirname(p), build.group(1)))
+                    df = posixpath.join("" if d == "." else d, "Dockerfile")
+                    if df in files:
+                        svc_files.append(df)
+                cmd = cmdm.group(1).strip() if cmdm else ""
+                if not cmd and len(svc_files) > 1:
+                    dcmds = re.findall(r"^\s*(?:CMD|ENTRYPOINT)\s+(.+)$", files[svc_files[1]]["text"], re.M | re.I)
+                    if dcmds:
+                        cmd = dcmds[-1]
+                        try:
+                            cmd = " ".join(json.loads(cmd)) if cmd.startswith("[") else cmd
+                        except ValueError:
+                            pass
                 out.append({"id": "compose:" + p + ":" + name, "kind": "service", "name": name,
-                            "what": ("image " + img.group(1)) if img else "built here", "files": [p], "ports": ports,
-                            "cmd": cmdm.group(1).strip() if cmdm else ""})
+                            "what": ("image " + img.group(1)) if img else "built here", "files": svc_files + program_files(files, cmd), "ports": ports,
+                            "cmd": cmd, "depends": sorted(set(dep))})
     return out
 
 def compose_services(text):
@@ -111,10 +140,11 @@ def how_to_run(files):
     """Commands the repo itself names: [{"cmd","what","from"}], in a stable order."""
     out = []
     seen = set()
-    def add(cmd, what, src):
+    def add(cmd, what, src, body="", entry=None):
         if cmd not in seen:
             seen.add(cmd)
-            out.append({"cmd": cmd, "what": what, "from": src})
+            out.append({"cmd": cmd, "what": what, "from": src, "runs": body.strip()[:300],
+                        "files": program_files(files, body or what), "entry": entry})
     for p in sorted(files, key=lambda x: (x.count("/"), x)):
         base, text = posixpath.basename(p), files[p]["text"]
         if p.count("/") > 1:
@@ -128,23 +158,27 @@ def how_to_run(files):
             for k in ("install",):
                 add(pre + "npm install", "install dependencies", p)
             for k, v in (pkg.get("scripts") or {}).items():
-                add(pre + "npm run " + k, v, p)
+                add(pre + "npm run " + k, "", p, v)
             b = pkg.get("bin")
             for k, v in ((b.items() if isinstance(b, dict) else [(pkg.get("name", "bin"), b)]) if b else []):
                 add(k, "command installed by the package: " + str(v), p)
         elif base in ("Makefile", "makefile", "GNUmakefile"):
-            for t in re.findall(r"^([A-Za-z][\w.-]*)\s*:(?!=)", text, re.M):
+            for m in re.finditer(r"^([A-Za-z][\w.-]*)\s*:(?!=)[^\n]*\n((?:\t[^\n]*\n?)*)", text, re.M):
+                t = m.group(1)
                 if t not in (".PHONY",) and not t.startswith("."):
-                    add(pre + "make " + t, "", p)
+                    recipe = " ; ".join(l.strip().lstrip("@-") for l in m.group(2).split("\n") if l.strip())
+                    add(pre + "make " + t, "", p, recipe)
         elif base == "pyproject.toml" and tomllib:
             try:
                 d = tomllib.loads(text)
             except Exception:
                 continue
-            for k, v in ((d.get("project") or {}).get("scripts") or {}).items():
-                add(k, "entry point " + v, p)
-            for k, v in (((d.get("tool") or {}).get("poetry") or {}).get("scripts") or {}).items():
-                add(k, "entry point " + str(v), p)
+            for k, v in list(((d.get("project") or {}).get("scripts") or {}).items()) + list((((d.get("tool") or {}).get("poetry") or {}).get("scripts") or {}).items()):
+                v = str(v)
+                mod, _, fn = v.partition(":")
+                cand = [mod.replace(".", "/") + ".py", mod.replace(".", "/") + "/__init__.py", "src/" + mod.replace(".", "/") + ".py"]
+                hit = next((c for c in cand if c in files), None)
+                add(k, "entry point " + v, p, "", {"file": hit, "name": fn.split(".")[-1]} if hit and fn else None)
         elif base == "Cargo.toml" and tomllib:
             try:
                 d = tomllib.loads(text)

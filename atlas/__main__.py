@@ -25,6 +25,11 @@ def main(argv=None):
     g["readme"] = infra.readme_lead(files)
     g["runtime"] = infra.runtime(files)
     g["run"] = infra.how_to_run(files)
+    from . import gitinfo
+    h = gitinfo.history(root)
+    if h:
+        h["files"] = {k: v for k, v in h["files"].items() if k in files}
+    g["git"] = h
     log(f"{len(g['files'])} files, {len(g['symbols'])} symbols, {len(g['calls'])} calls, {len(g['entries'])} entry points, "
         f"{len(g['runtime'])} runtime pieces in {time.time() - t0:.1f}s")
     if a.json:

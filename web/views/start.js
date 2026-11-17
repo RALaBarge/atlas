@@ -170,7 +170,7 @@
     S.walk = n;
     if (S.view !== "walk") setView("walk"); else VIEWS.walk.show();
   }
-  A.openWalk = openWalk; A.walk = walk; A.walks = walks;
+  A.openWalk = openWalk; A.walk = walk; A.walks = walks; A.outs = outs; A.entries = entries; A.where = where;
 
   VIEWS.start = { show() { page.innerHTML = startHTML(); page.scrollTop = 0; }, hide() {}, sel() {} };
   VIEWS.walk = { show() { page.innerHTML = walkHTML(S.walk || (entries[0] && entries[0].n) || ROOT); page.scrollTop = 0; }, hide() {}, sel() {} };
