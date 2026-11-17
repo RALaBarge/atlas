@@ -29,7 +29,7 @@ def write(g, files, out):
         blocks.append(f'<script type="application/x-atlas" id="atlas-src-{i}">{pack(areas[a])}</script>')
     read = lambda n: open(os.path.join(WEB, n), encoding="utf-8").read()
     html = read("index.html")
-    title = (g.get("name") or "repo") + " atlas"
+    title = (g.get("name") or "repo") + " Atlas"
     html = (html.replace("{{TITLE}}", title.replace("<", "&lt;"))
                 .replace("/*{{CSS}}*/", read("app.css"))
                 .replace("<!--{{DATA}}-->", "\n".join(blocks))
