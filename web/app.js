@@ -99,8 +99,11 @@ function layoutRadial(f) {
     const d = n.depth - f.depth;
     const ro = !n.kids.length ? R : d === 0 ? 0 : R * (0.3 + 0.62 * (d - 1) / Math.max(1, maxD - 1));   // leaves sit on the rim
     out.set(n, { a0, a1, ri: ro, ro });
+    // a slice in proportion to what each child holds, with a floor near the middle so small areas stay visible
+    const floor = d === 0 ? 0.04 : d === 1 ? 0.02 : 0, w = n.kids.map((k) => Math.max(k.leaves, floor * n.leaves));
+    const tot = w.reduce((x, y) => x + y, 0) || 1;
     let a = a0;
-    for (const k of n.kids) { const span = (a1 - a0) * k.leaves / n.leaves; place(k, a, a + span); a += span; }
+    n.kids.forEach((k, i) => { const span = (a1 - a0) * w[i] / tot; place(k, a, a + span); a += span; });
   })(f, start, start + TAU);
   return out;
 }

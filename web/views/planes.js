@@ -42,8 +42,8 @@
     for (const n of N.values()) {
       if (n === ROOT) continue;
       const a = ang(n);
-      if (n.t === "area") pos.set(n, P(a, R0 * 0.32, LEVEL.area));
-      else if (n.t === "comp") pos.set(n, P(a, R0 * 0.62, LEVEL.comp));
+      if (n.t === "area") pos.set(n, P(a, R0 * 0.45, LEVEL.area));
+      else if (n.t === "comp") pos.set(n, P(a, R0 * 0.75, LEVEL.comp));
       else if (n.t === "file") {
         // files fill their area's wedge as a grid, in path order: columns across the wedge, rows outward
         const sib = n.parent.kids.filter((k) => k.t === "file"), i = sib.indexOf(n), w = lay.get(n.parent);
@@ -170,17 +170,22 @@
     tools.addEventListener("click", (e) => { const b = e.target.closest("[data-fold]"); if (b) collapseTo(b.dataset.fold); });
     const proj = new T.Vector3();
     function labels() {
-      const w = host.clientWidth, h = host.clientHeight, out = [];
-      const put = (v, text, cls, color) => {
+      const w = host.clientWidth, h = host.clientHeight, out = [], boxes = [];
+      // labels are placed most important first; one that would cover another is left out (hover shows it)
+      const put = (v, text, cls, color, always) => {
         proj.copy(v).project(camera);
         if (proj.z > 1) return;
-        out.push(`<span class="${cls}" style="left:${((proj.x + 1) / 2 * w).toFixed(1)}px;top:${((1 - proj.y) / 2 * h).toFixed(1)}px${color ? ";color:" + color : ""}">${esc(text)}</span>`);
+        const x = (proj.x + 1) / 2 * w, y = (1 - proj.y) / 2 * h, bw = text.length * 7.2 + 14, bx = x - bw / 2, by = y - 26;
+        if (!always && boxes.some((b) => bx < b[0] + b[2] && bx + bw > b[0] && by < b[1] + 20 && by + 20 > b[1])) return;
+        boxes.push([bx, by, bw]);
+        out.push(`<span class="${cls}" style="left:${x.toFixed(1)}px;top:${y.toFixed(1)}px${color ? ";color:" + color : ""}">${esc(text)}</span>`);
       };
-      for (const p of planeLabels) put(p.v, p.name, "pl");
-      for (const n of all) if ((n.t === "area" && rep(n) === n) || n.t === "rt") put(pos.get(n), n.t === "rt" ? n.name : n.name.toUpperCase(), n.t === "rt" ? "rt" : "ar", n.t === "rt" ? "#f4efe2" : colorOf(n));
       const folded = (n) => collapsed.has(n) ? ` · ${n.nFiles > 1 ? n.nFiles + " files, " : ""}${n.nFns} fn folded` : "";
-      if (S.sel && posOf(S.sel)) put(posOf(S.sel), label(rep(S.sel)) + folded(rep(S.sel)), "se");
-      if (hover && hover !== S.sel) put(pos.get(hover), label(hover) + folded(hover) + (collapsed.has(hover) ? " · double-click to open" : hover.kids && hover.kids.length ? " · double-click to fold" : ""), "ho");
+      if (S.sel && posOf(S.sel)) put(posOf(S.sel), label(rep(S.sel)) + folded(rep(S.sel)), "se", null, true);
+      if (hover && hover !== S.sel) put(pos.get(hover), label(hover) + folded(hover) + (collapsed.has(hover) ? " · double-click to open" : hover.kids && hover.kids.length ? " · double-click to fold" : ""), "ho", null, true);
+      for (const n of all) if (n.t === "rt") put(pos.get(n), n.name, "rt", "#f4efe2");
+      for (const n of all) if (n.t === "area" && rep(n) === n) put(pos.get(n), n.name.toUpperCase(), "ar", colorOf(n));
+      for (const p of planeLabels) put(p.v, p.name, "pl", null, true);
       lbl.innerHTML = out.join("");
     }
 
