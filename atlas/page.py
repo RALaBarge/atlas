@@ -16,7 +16,9 @@ def pack(obj):
     raw = json.dumps(obj, separators=(",", ":"), sort_keys=True, ensure_ascii=False).encode("utf-8")
     return base64.b64encode(gzip.compress(raw, compresslevel=9, mtime=0)).decode("ascii")
 
-def write(g, files, out):
+def write(g, files, out, split=False):
+    """split: source blocks go beside the page as atlas-src-N.txt (fetched when opened) instead of inside it,
+    for repos whose source won't fit in one file. Returns the page size; the side files are listed in g["_split"]."""
     data = dict(g, tool={"name": "atlas", "version": VERSION})
     areas = {}
     for f in g["files"]:
@@ -26,8 +28,16 @@ def write(g, files, out):
     area_keys = sorted(areas)
     data["sourceBlocks"] = {a: i for i, a in enumerate(area_keys)}
     blocks = [f'<script type="application/x-atlas" id="atlas-graph">{pack(data)}</script>']
+    side = []
     for i, a in enumerate(area_keys):
-        blocks.append(f'<script type="application/x-atlas" id="atlas-src-{i}">{pack(areas[a])}</script>')
+        if split:
+            name = f"atlas-src-{i}.txt"
+            with open(os.path.join(os.path.dirname(os.path.abspath(out)), name), "w", encoding="ascii") as f:
+                f.write(pack(areas[a]))
+            side.append(name)
+        else:
+            blocks.append(f'<script type="application/x-atlas" id="atlas-src-{i}">{pack(areas[a])}</script>')
+    g["_split"] = side
     read = lambda n: open(os.path.join(WEB, n), encoding="utf-8").read()
     html = read("index.html")
     title = (g.get("name") or "repo") + " Atlas"

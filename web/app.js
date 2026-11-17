@@ -9,7 +9,8 @@ const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const TAU = Math.PI * 2;
 
 async function unpack(id) {
-  const b64 = document.getElementById(id).textContent.trim();
+  const el = document.getElementById(id);
+  const b64 = (el ? el.textContent : await (await fetch(id + ".txt")).text()).trim();    // split build: the block sits beside the page
   const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
   const stream = new Blob([bin]).stream().pipeThrough(new DecompressionStream("gzip"));
   return JSON.parse(await new Response(stream).text());

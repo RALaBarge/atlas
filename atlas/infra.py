@@ -29,7 +29,8 @@ def match_file(files, token):
     """A command's program (path or name) -> a repo file, if one plainly matches."""
     token = token.strip("\"'")
     base = posixpath.basename(token)
-    if not base or base in ("python", "python3", "node", "bash", "sh", "env", "npm", "npx", "uv", "go", "java"):
+    if not base or base in ("python", "python3", "node", "bash", "sh", "env", "npm", "npx", "uv", "go", "java",
+                                "bun", "bunx", "deno", "pnpm", "yarn", "cargo", "make", "docker", "run", "exec", "sudo"):
         return None
     hits = [p for p in files if p.endswith("/" + token.lstrip("./")) or p == token.lstrip("./")]
     if not hits:
@@ -39,6 +40,12 @@ def match_file(files, token):
 
 def program_files(files, cmd):
     out = []
+    cwd = re.search(r"(?:--cwd[= ]|--prefix[= ]|\bcd\s+)([\w./-]+)", cmd)            # bun --cwd=pkg x.ts, cd pkg && ...
+    if cwd:
+        for tok in re.split(r"[\s;&|]+", cmd):
+            c = posixpath.normpath(posixpath.join(cwd.group(1), tok)) if tok and not tok.startswith("-") else None
+            if c and c in files and files[c]["lang"] and c not in out:
+                out.append(c)
     for mod in re.findall(r"(?:^|\s)-m\s+([\w.]+)", cmd):          # python -m pkg.mod
         base = mod.replace(".", "/")
         for c in (base + "/__main__.py", base + ".py", "src/" + base + "/__main__.py", "src/" + base + ".py"):
@@ -76,7 +83,7 @@ def runtime(files):
             ports = [v for k in ("ListenStream", "ListenDatagram") for v in u.get("Socket", {}).get(k, [])]
             out.append({"id": "unit:" + p, "kind": kind, "name": base, "what": (u.get("Unit", {}).get("Description") or [""])[0],
                         "files": [p] + program_files(files, cmd), "ports": ports, "cmd": cmd})
-        elif base.startswith("Dockerfile") or base.endswith(".Dockerfile"):
+        elif (base.startswith("Dockerfile") or base.endswith(".Dockerfile")) and re.search(r"^\s*FROM\s+\S", text, re.M | re.I):
             cmds = re.findall(r"^\s*(?:CMD|ENTRYPOINT)\s+(.+)$", text, re.M | re.I)
             ports = re.findall(r"^\s*EXPOSE\s+(.+)$", text, re.M | re.I)
             cmd = cmds[-1] if cmds else ""
@@ -151,11 +158,23 @@ def how_to_run(files):
     """Commands the repo itself names: [{"cmd","what","from"}], in a stable order."""
     out = []
     seen = set()
-    def add(cmd, what, src, body="", entry=None):
+    def add(cmd, what, src, body="", entry=None, prog=None):
         if cmd not in seen:
             seen.add(cmd)
             out.append({"cmd": cmd, "what": what, "from": src, "runs": body.strip()[:300],
-                        "files": program_files(files, body or what), "entry": entry})
+                        "files": prog if prog is not None else program_files(files, body or what), "entry": entry})
+    # commands a package installs ("bin"), at any depth: in a monorepo the real program is often a nested package
+    for p in sorted(files, key=lambda x: (x.count("/"), x)):
+        if posixpath.basename(p) != "package.json" or re.search(r"(^|/)(test|tests|fixtures?|examples?|node_modules)/", p):
+            continue
+        try:
+            pkg = json.loads(files[p]["text"])
+        except ValueError:
+            continue
+        b = pkg.get("bin") if isinstance(pkg, dict) else None
+        for k, v in ((b.items() if isinstance(b, dict) else [(pkg.get("name", "bin"), b)]) if b else []):
+            target = posixpath.normpath(posixpath.join(posixpath.dirname(p), str(v)))
+            add(k, "command installed by " + p + ": " + str(v), p, "", None, [target] if target in files else [])
     for p in sorted(files, key=lambda x: (x.count("/"), x)):
         base, text = posixpath.basename(p), files[p]["text"]
         if p.count("/") > 1:
@@ -170,9 +189,6 @@ def how_to_run(files):
                 add(pre + "npm install", "install dependencies", p)
             for k, v in (pkg.get("scripts") or {}).items():
                 add(pre + "npm run " + k, "", p, v)
-            b = pkg.get("bin")
-            for k, v in ((b.items() if isinstance(b, dict) else [(pkg.get("name", "bin"), b)]) if b else []):
-                add(k, "command installed by the package: " + str(v), p)
         elif base in ("Makefile", "makefile", "GNUmakefile"):
             for m in re.finditer(r"^([A-Za-z][\w.-]*)\s*:(?!=)[^\n]*\n((?:\t[^\n]*\n?)*)", text, re.M):
                 t = m.group(1)

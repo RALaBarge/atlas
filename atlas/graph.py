@@ -26,7 +26,15 @@ fullmatch finditer findall compile mkdir unlink rename stat exists iterdir glob 
 read_bytes write_bytes info debug warning error critical log exit kill terminate communicate poll recv sendall bind listen
 accept shutdown settimeout getsockname json text raise_for_status iter_lines status_code headers toString equals hashCode
 String Error Close Write Read Lock Unlock Wait Done Add Get Set Len Load Store Do Run Start Stop Scan Next Err Bytes Sprintf
-Printf Println Errorf New Unwrap Is As Trim Split Join HasPrefix HasSuffix Contains Replace""".split())
+Printf Println Errorf New Unwrap Is As Trim Split Join HasPrefix HasSuffix Contains Replace
+collect iter iter_mut into_iter unwrap unwrap_or unwrap_or_else unwrap_or_default expect ok err ok_or ok_or_else map_err
+and_then or_else as_ref as_mut as_str as_bytes as_slice as_deref to_string to_owned to_vec clone cloned copied into from
+borrow borrow_mut len is_empty is_some is_none is_ok is_err push_str get_mut starts_with ends_with trim chars bytes lines
+take skip zip enumerate rev sum max min any all position fold flat_map filter_map find_map chain peekable last nth step_by
+windows chunks sort_by sort_by_key sort_unstable dedup retain truncate drain spawn poll_next default with_capacity entry
+or_insert or_insert_with fmt hash eq cmp partial_cmp display lock try_lock
+slice splice concat includes indexOf lastIndexOf toLowerCase toUpperCase startsWith endsWith padStart padEnd some every
+flat flatMap entries assign of reject finally test exec toJSON stringify valueOf trimStart trimEnd at fill""".split())
 
 # Calls that usually make a function slow. Each pattern is matched against "name@receiver" (receiver "None" when there
 # is none). Static hints only: they say where to look, not how long it takes.
@@ -429,7 +437,9 @@ def find_entries(files, symbols, fcalls, test_file):
     for p, f in sorted(files.items()):
         if test_file.get(p) or not f["parsed"]:
             continue
-        if f["parsed"].get("main_block") or (f["lang"] == "bash" and any(c["from"] < 0 for c in f["parsed"]["calls"])):
+        top_calls = any(a == p for a, _ in fcalls)
+        if (f["parsed"].get("main_block") or (f["lang"] == "bash" and any(c["from"] < 0 for c in f["parsed"]["calls"]))
+                or (top_calls and (f["text"].startswith("#!") or re.search(r"import\.meta\.main|require\.main\s*===?\s*module", f["text"])))):
             out.append({"id": p, "kind": "script", "label": p})
     seen, uniq = set(), []
     for e in sorted(out, key=lambda e: (e["kind"], e["id"])):

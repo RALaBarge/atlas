@@ -7,6 +7,7 @@ def main(argv=None):
     ap.add_argument("path", nargs="?", default=".")
     ap.add_argument("-o", "--out", help="HTML file to write (default: atlas.html in the current directory)")
     ap.add_argument("--json", help="also write the graph as JSON")
+    ap.add_argument("--split", action="store_true", help="put source text in atlas-src-N.txt files beside the page (for repos too big for one file)")
     a = ap.parse_args(argv)
     root = os.path.abspath(a.path)
     t0 = time.time()
@@ -38,7 +39,7 @@ def main(argv=None):
     if a.out or not a.json:
         from . import page
         out = a.out or "atlas.html"
-        size = page.write(g, files, out)
+        size = page.write(g, files, out, split=a.split)
         log(f"wrote {out} ({size // 1024} KiB)")
 
 if __name__ == "__main__":

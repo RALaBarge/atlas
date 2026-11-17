@@ -4,7 +4,7 @@
   const { G, N, ROOT } = A;
   const fileOf = (n) => { while (n && n.t !== "file") n = n.parent; return n; };
   const areaOf = (n) => { while (n && n.t !== "area") n = n.parent; return n; };
-  const TOOL = /^(scripts?|tools?|bin|hack|ci|dev|devtools|misc|\.github|\.circleci|examples?|benchmarks?|bench|evals?)(\/|$)/i;
+  const TOOL = /^(scripts?|tools?|bin|hack|ci|dev|devtools|misc|\.[\w-]+|examples?|benchmarks?|bench|evals?)(\/|$)|(^|\/)([\w-]*bench(mark)?s?[\w-]*|examples?|fixtures?|demos?)(\/|$)/i;
   const runs = G.run || [];
   const nameOf = (e) => {
     if (e.kind === "route") return e.label;
@@ -25,7 +25,12 @@
   const started = new Set((G.runtime || []).flatMap((r) => r.files));
   const runFiles = new Set(runs.flatMap((r) => (r.files || []).concat(r.entry && r.entry.file ? [r.entry.file] : [])));
   const isStarted = (d) => started.has(d.file.path) || runFiles.has(d.file.path);
-  const primary = [...programs].filter((d) => !d.tooling).sort((a, b) => (isStarted(b) - isStarted(a)) || b.steps.length - a.steps.length)[0] || doors[0] || null;
+  // how sure we are this is how people start it: a service or image, a command the package installs, any named command
+  const binFiles = new Set(runs.filter((r) => /^command installed/.test(r.what || "") || r.entry).flatMap((r) => (r.files || []).concat(r.entry && r.entry.file ? [r.entry.file] : [])));
+  const startRank = (d) => started.has(d.file.path) ? 3 : binFiles.has(d.file.path) ? 2 : runFiles.has(d.file.path) ? 1 : 0;
+  // then: the file most of the repo's own commands start (npm run dev, dev:timing, stats... all run the same cli.ts)
+  const refs = (d) => runs.filter((r) => (r.files || []).includes(d.file.path) || (r.entry && r.entry.file === d.file.path)).length;
+  const primary = [...programs].filter((d) => !d.tooling).sort((a, b) => (startRank(b) - startRank(a)) || refs(b) - refs(a) || b.steps.length - a.steps.length)[0] || doors[0] || null;
 
   // flow: how many front doors (not tooling) reach each node
   const flow = new Map();

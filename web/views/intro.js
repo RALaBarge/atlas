@@ -50,6 +50,13 @@
       out.push({ t: "fn", n: to, sub: "the server loads “" + h[3] + "” and runs this first" });
       last = to;
     }
+    // a step that only hands off to one function (cli.ts -> runCli): go one further, up to three times
+    for (let hop = 0; hop < 3; hop++) {
+      const fc = firstCalls(last, 99);
+      if (fc.length !== 1 || out.some((s) => s.n === fc[0][0])) break;
+      last = fc[0][0];
+      out.push({ t: "fn", n: last, sub: "the only thing it calls" });
+    }
     return { steps: out, last };
   }
   function firstCalls(n, k = 7) {
@@ -66,7 +73,7 @@
       const { steps, last } = keyChain(p);
       const others = A.programs.filter((d) => !d.tooling).length - 1;
       h += `<li><h3>When you turn the key</h3><p>What runs, in order, from the command to the code.${others > 0 ? ` (${others} other program${others === 1 ? "" : "s"}; this one reaches the most code.)` : ""}</p><ol class="key-chain">` +
-        steps.map((s) => s.n ? `<li class="kc-${s.t}"><button data-go="${esc(s.n.id)}">${esc(s.n.t === "file" ? s.text : label(s.n))}</button><span>${esc(s.sub)}${s.n.t === "sym" ? " · " + esc(A.where(s.n)) : ""}</span></li>`
+        steps.map((s) => s.n ? `<li class="kc-${s.t}"><button data-go="${esc(s.n.id)}">${esc(s.n.t === "file" ? s.text || s.n.path : label(s.n))}</button><span>${esc(s.sub)}${s.n.t === "sym" ? " · " + esc(A.where(s.n)) : ""}</span></li>`
           : `<li class="kc-${s.t}"><code data-go="${esc("f:" + s.file)}">${esc(s.text)}</code><span>${esc(s.sub)}</span></li>`).join("") + `</ol>`;
       const fc = firstCalls(last);
       if (fc.length) h += `<p class="kc-then">Then <b>${esc(label(last))}</b> calls, in order:</p><ol class="key-calls">${fc.map(([t, ln]) =>
